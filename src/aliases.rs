@@ -1,4 +1,5 @@
-use alloy_primitives::{aliases::*, Address, Bytes};
+pub use alloy_primitives::aliases::{B32, U1, U256};
+pub use alloy_primitives::{Address, Bytes};
 
 pub type boolean = U1;
 pub type uint = U256;
