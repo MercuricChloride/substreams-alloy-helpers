@@ -17,3 +17,12 @@ macro_rules! parse_as {
         SolidityType::$variant($self.value.parse().unwrap())
     };
 }
+
+/// A macro that allows us to convert a string, to a particular solidity type.
+/// This is syntax sugar for parsing the string and wrapping in appropriate types
+#[macro_export]
+macro_rules! sol_type {
+    ($variant: ident, $str: expr) => {
+        SolidityType::$variant($str.parse().unwrap()).to_json_value()
+    };
+}

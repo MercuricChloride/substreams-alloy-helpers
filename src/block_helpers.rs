@@ -1,26 +1,62 @@
-use crate::aliases::*;
+use crate::{
+    aliases::*,
+    parse_as,
+    prelude::{format_hex, SolidityJsonValue, SolidityType},
+    sol_type,
+};
 use alloy_primitives::{FixedBytes, Log};
 use alloy_sol_types::SolEvent;
-use serde::Serialize;
-use serde_json::Value;
-use substreams_ethereum::{block_view::LogView, pb::eth::v2::Block};
+use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
+use substreams_ethereum::{
+    block_view::LogView,
+    pb::eth::v2::{block, Block},
+};
+
+#[derive(Serialize, Deserialize)]
+pub struct TxMeta {
+    from: SolidityJsonValue,
+    to: SolidityJsonValue,
+    block_number: SolidityJsonValue,
+}
+
+impl TxMeta {
+    pub fn new(from: &String, to: &String, block_number: &String) -> TxMeta {
+        TxMeta {
+            from: sol_type!(Address, from),
+            to: sol_type!(Address, to),
+            block_number: sol_type!(Uint, block_number),
+        }
+    }
+
+    fn from_log(value: &substreams_ethereum::block_view::LogView, block_number: &String) -> Self {
+        let txn = &value.receipt.transaction;
+        let (from, to) = (&format_hex(&txn.from), &format_hex(&txn.to));
+        TxMeta::new(from, to, block_number)
+    }
+}
 
 pub trait BlockHelpers {
-    fn alloy_logs(&self, addresses: &[&Address]) -> Vec<Log>;
+    fn alloy_logs(&self, addresses: &[&Address]) -> Vec<(Log, TxMeta)>;
 }
 
 impl BlockHelpers for Block {
-    fn alloy_logs(&self, addresses: &[&Address]) -> Vec<Log> {
+    fn alloy_logs(&self, addresses: &[&Address]) -> Vec<(Log, TxMeta)> {
+        let block_number = self.number.to_string();
         self.logs()
-            .filter(|log| {
+            .filter_map(|log| {
                 if addresses.is_empty() {
-                    true
+                    Some((log, TxMeta::from_log(&log, &block_number)))
                 } else {
                     let address = Address::from_slice(log.address());
-                    addresses.contains(&&address)
+                    if addresses.contains(&&address) {
+                        Some((log, TxMeta::from_log(&log, &block_number)))
+                    } else {
+                        None
+                    }
                 }
             })
-            .map(|l| l.into_log())
+            .map(|(log, meta)| (log.into_log(), meta))
             .collect()
     }
 }
@@ -41,10 +77,26 @@ where
         let validate = false;
         blk.alloy_logs(addresses)
             .iter()
-            .filter_map(|l| T::decode_log_object(l, validate).ok())
-            .map(|e| e.as_json())
-            .map(|e| serde_json::to_string_pretty(&e).unwrap())
-            .map(|e| serde_json::from_str(&e).unwrap())
+            .filter_map(|(l, meta)| {
+                let event = T::decode_log_object(l, validate).ok();
+                if let Some(event) = event {
+                    Some((event, meta))
+                } else {
+                    None
+                }
+            })
+            .map(|(event, meta)| {
+                let mut map: Map<String, Value> = serde_json::from_value(event.as_json()).unwrap();
+                let key = String::from("tx_meta");
+                if map.contains_key(&key) {
+                    panic!("Map contains the tx_meta key already!");
+                }
+
+                map.insert(key, serde_json::to_value(meta).unwrap());
+
+                serde_json::from_value(map.into())
+                    .expect("Failed convert event into protobuf struct")
+            })
             .collect()
     }
 }
