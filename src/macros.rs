@@ -10,6 +10,44 @@ macro_rules! loose_sol {
     };
 }
 
+#[macro_export]
+macro_rules! with_map {
+    ($map_ident: ident ,$($body:tt)*) => {
+        let mut $map_ident: serde_json::Map<_, Value> = Map::new();
+
+        $($body)*
+
+        serde_json::from_value(serde_json::to_value($map_ident).unwrap()).unwrap()
+    };
+}
+
+#[macro_export]
+macro_rules! map_insert {
+    ($key: expr, $val: expr, $map_ident: ident) => {
+        $map_ident.insert($key.to_string(), serde_json::to_value($val).unwrap());
+    };
+}
+
+#[macro_export]
+macro_rules! map_literal {
+    ($($key: expr; $val: expr),*) => {{
+        let mut output_map: serde_json::Map<_, Value> = Map::new();
+
+        $(map_insert!($key, $val, output_map);)*
+
+        serde_json::to_value(output_map).unwrap()
+    }};
+}
+
+#[macro_export]
+macro_rules! map_access {
+    ($map:ident $(.$key: ident)*) => {{
+        let output = &$map;
+        $(let output = output.get(stringify!($key)).unwrap();)*
+        output
+    }};
+}
+
 /// Just a simple wrapper that adds syntax sugar for parsing our custom json value type
 #[macro_export]
 macro_rules! parse_as {
