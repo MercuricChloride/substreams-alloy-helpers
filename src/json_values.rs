@@ -73,9 +73,7 @@ impl From<SolidityType> for SolidityJsonValue {
 impl SolidityJsonValue {
     pub fn to_sol_type(self) -> SolidityType {
         match self.kind.as_str() {
-            "boolean" => {
-                SolidityType::Boolean(self.value.parse().expect("Failed to decode boolean"))
-            }
+            "boolean" => parse_as!(self, Boolean),
             "uint" => parse_as!(self, Uint),
             "bytes" => parse_as!(self, ByteArray),
             "string" => parse_as!(self, String),
@@ -146,3 +144,19 @@ impl_from!(U1, Boolean);
 impl_from!(alloy_primitives::U256, Uint);
 impl_from!(Bytes, ByteArray);
 impl_from!(B32, FixedArray);
+
+impl From<Vec<u8>> for SolidityType {
+    fn from(value: Vec<u8>) -> Self {
+        if value.len() == 32 {
+            SolidityType::FixedArray(B32::from_slice(&value))
+        } else {
+            SolidityType::ByteArray(Bytes::copy_from_slice(&value))
+        }
+    }
+}
+
+impl From<bool> for SolidityType {
+    fn from(value: bool) -> Self {
+        SolidityType::Boolean(U1::from(value))
+    }
+}

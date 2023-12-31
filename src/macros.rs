@@ -4,7 +4,7 @@
 macro_rules! loose_sol {
     ($($body:tt)*) => {
         sol! {
-            #[derive(::derive_more::From, ::serde::Serialize, ::serde::Deserialize, ::substreams_alloy_macros::JsonSolTypes)]
+            #[derive(::serde::Serialize, ::serde::Deserialize, ::substreams_alloy_macros::JsonSolTypes)]
             $($body)*
         }
     };
@@ -41,11 +41,39 @@ macro_rules! map_literal {
 
 #[macro_export]
 macro_rules! map_access {
-    ($map:ident $(.$key: ident)*) => {{
-        let output = &$map;
-        $(let output = output.get(stringify!($key)).unwrap();)*
-        output
+    ($map:expr,$($key: expr),*) => {{
+        let output = $map;
+        $(let output = output.get($key).unwrap();)*
+        output.clone()
     }};
+}
+
+/// A helper macro that allows us to convert any struct into a serde_json::Map
+#[macro_export]
+macro_rules! to_map {
+    ($value: expr) => {
+        serde_json::from_value::<serde_json::Map<_, serde_json::Value>>(
+            serde_json::to_value($value).unwrap(),
+        )
+        .unwrap()
+    };
+}
+
+/// A helper macro that allows us to convert any map into an array
+#[macro_export]
+macro_rules! to_array {
+    ($value: expr) => {
+        serde_json::from_str::<Vec<serde_json::Value>>(&serde_json::to_string(&$value).unwrap())
+            .unwrap()
+    };
+}
+
+/// converts all inputs to a module that are a Struct protobuf into a Map with the same ident.
+#[macro_export]
+macro_rules! format_inputs {
+    ($($input: ident),*) => {
+        $(let $input = to_map!($input);)*
+    };
 }
 
 /// Just a simple wrapper that adds syntax sugar for parsing our custom json value type
