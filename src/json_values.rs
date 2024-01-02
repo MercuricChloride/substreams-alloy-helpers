@@ -40,7 +40,7 @@ pub enum SolidityType {
     Uint(U256),
     Address(Address),
     ByteArray(Bytes),
-    FixedArray(B32),
+    FixedArray(alloy_primitives::B256),
     String(String),
 }
 
@@ -143,12 +143,12 @@ impl_from!(String, String);
 impl_from!(U1, Boolean);
 impl_from!(alloy_primitives::U256, Uint);
 impl_from!(Bytes, ByteArray);
-impl_from!(B32, FixedArray);
+impl_from!(alloy_primitives::B256, FixedArray);
 
 impl From<Vec<u8>> for SolidityType {
     fn from(value: Vec<u8>) -> Self {
         if value.len() == 32 {
-            SolidityType::FixedArray(B32::from_slice(&value))
+            SolidityType::FixedArray(alloy_primitives::B256::from_slice(&value))
         } else {
             SolidityType::ByteArray(Bytes::copy_from_slice(&value))
         }
