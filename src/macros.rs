@@ -30,14 +30,14 @@ macro_rules! with_map {
                 if obj.is_empty() {
                     None
                 } else {
-                    Some(serde_json::to_value(obj).expect("failed to convert the obj into a Value"))
+                    Some(serde_json::to_value(obj).ok())
                 }
             },
             serde_json::Value::Null => None,
             _ => panic!("Not sure how to convert this type into a map for output!")
         };
 
-        if let Some(val) = $map_ident {
+        if let Some(Some(val)) = $map_ident {
             serde_json::from_value(val).ok()?
         } else {
             None
@@ -70,7 +70,9 @@ macro_rules! map_insert {
         };
 
         if should_insert_val {
-            $map_ident.insert($key.to_string(), val.unwrap());
+            $map_ident.insert($key.to_string(), val.unwrap())
+        } else {
+            None
         }
     };
 }
@@ -82,14 +84,14 @@ macro_rules! map_literal {
 
         $(map_insert!($key, $val, output_map);)*
 
-        serde_json::to_value(output_map).unwrap()
+        serde_json::to_value(output_map).ok()
     }};
 }
 
 #[macro_export]
 macro_rules! map_access {
     ($map:expr,$($key: expr),*) => {{
-        substreams::log::println(format!("{:?}", $map));
+        //substreams::log::println(format!("{:?}", $map));
         let output: serde_json::Map<String, Value> = serde_json::from_value(serde_json::to_value($map).ok()?).ok()?;
         $(let output = output.get($key)?;)*
         Some(output.clone())
@@ -101,19 +103,19 @@ macro_rules! map_access {
 macro_rules! map {
     ($value: expr, $callback: expr) => {
         if let Some(val) = $value.as_ref() {
-            match val {
+            match serde_json::to_value(val).unwrap() {
                 serde_json::Value::Array(arr) => Some(
                     arr.into_iter()
-                        .filter_map($callback)
-                        .map(|element| serde_json::to_value(element).unwrap())
+                        .map($callback)
+                        .filter_map(|element| serde_json::to_value(element).ok())
                         .collect(),
                 ),
                 serde_json::Value::Object(obj) => {
                     if let Some(serde_json::Value::Array(arr)) = obj.get("values").as_ref() {
                         Some(
                             arr.into_iter()
-                                .filter_map($callback)
-                                .map(|element| serde_json::to_value(element).unwrap())
+                                .map($callback)
+                                .filter_map(|element| serde_json::to_value(element).ok())
                                 .collect(),
                         )
                     } else {
@@ -129,10 +131,6 @@ macro_rules! map {
                 }
             }
         } else {
-            substreams::log::println(format!(
-                "Failed quietly, couldn't map over null or not an array! {:?}",
-                $value
-            ));
             None
         };
     };
@@ -170,10 +168,10 @@ macro_rules! filter {
                 }
             }
         } else {
-            substreams::log::println(format!(
-                "Failed quietly, couldn't filter over null or not an array! {:?}",
-                $value
-            ));
+            //substreams::log::println(format!(
+            //"Failed quietly, couldn't filter over null or not an array! {:?}",
+            //$value
+            //));
             None
         };
     };
@@ -203,7 +201,7 @@ macro_rules! to_array {
                 _ => None,
             }
         } else {
-            substreams::log::println(format!("VALUE IS NONE!"));
+            //substreams::log::println(format!("VALUE IS NONE!"));
             None
         }
     };
