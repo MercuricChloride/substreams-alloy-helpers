@@ -17,16 +17,28 @@ macro_rules! with_map {
 
         $($body)*
 
-        substreams::log::println(format!("\n\nmap_ident value: \n\n{:?}", $map_ident));
+        //substreams::log::println(format!("\n\nmap_ident value: \n\n{:?}", $map_ident));
         let $map_ident = match serde_json::to_value($map_ident).ok()? {
-            serde_json::Value::Array(arr) => Some(map_literal!("values"; arr)),
-            serde_json::Value::Object(obj) => Some(serde_json::to_value(obj).expect("failed to convert the obj into a Value")),
+            serde_json::Value::Array(arr) => {
+                if arr.is_empty() {
+                    None
+                } else {
+                    Some(map_literal!("values"; arr))
+                }
+            },
+            serde_json::Value::Object(obj) => {
+                if obj.is_empty() {
+                    None
+                } else {
+                    Some(serde_json::to_value(obj).expect("failed to convert the obj into a Value"))
+                }
+            },
             serde_json::Value::Null => None,
             _ => panic!("Not sure how to convert this type into a map for output!")
         };
 
         if let Some(val) = $map_ident {
-            serde_json::from_value(val).ok()
+            serde_json::from_value(val).ok()?
         } else {
             None
         }
@@ -36,7 +48,30 @@ macro_rules! with_map {
 #[macro_export]
 macro_rules! map_insert {
     ($key: expr, $val: expr, $map_ident: ident) => {
-        $map_ident.insert($key.to_string(), serde_json::to_value($val).unwrap());
+        let mut should_insert_val = false;
+        let val = serde_json::to_value($val).ok();
+        if let Some(val) = &val {
+            match val {
+                serde_json::Value::Array(arr) => {
+                    if !arr.is_empty() {
+                        should_insert_val = true;
+                    }
+                }
+                serde_json::Value::Object(obj) => {
+                    if !obj.is_empty() {
+                        should_insert_val = true;
+                    }
+                }
+                serde_json::Value::Null => {}
+                _ => {
+                    should_insert_val = true;
+                }
+            }
+        };
+
+        if should_insert_val {
+            $map_ident.insert($key.to_string(), val.unwrap());
+        }
     };
 }
 
@@ -96,6 +131,47 @@ macro_rules! map {
         } else {
             substreams::log::println(format!(
                 "Failed quietly, couldn't map over null or not an array! {:?}",
+                $value
+            ));
+            None
+        };
+    };
+}
+
+#[macro_export]
+macro_rules! filter {
+    ($value: expr, $callback: expr) => {
+        if let Some(val) = $value.as_ref() {
+            match val {
+                serde_json::Value::Array(arr) => Some(
+                    arr.into_iter()
+                        .filter($callback)
+                        .map(|element| serde_json::to_value(element).unwrap())
+                        .collect(),
+                ),
+                serde_json::Value::Object(obj) => {
+                    if let Some(serde_json::Value::Array(arr)) = obj.get("values").as_ref() {
+                        Some(
+                            arr.into_iter()
+                                .filter($callback)
+                                .map(|element| serde_json::to_value(element).unwrap())
+                                .collect(),
+                        )
+                    } else {
+                        None
+                    }
+                }
+                _ => {
+                    substreams::log::println(format!(
+                        "Failed quietly, couldn't filter over null or not an array! {:?}",
+                        $value
+                    ));
+                    None
+                }
+            }
+        } else {
+            substreams::log::println(format!(
+                "Failed quietly, couldn't filter over null or not an array! {:?}",
                 $value
             ));
             None
