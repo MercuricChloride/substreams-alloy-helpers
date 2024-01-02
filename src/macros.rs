@@ -17,7 +17,19 @@ macro_rules! with_map {
 
         $($body)*
 
-        serde_json::from_value(serde_json::to_value($map_ident).unwrap()).unwrap()
+        substreams::log::println(format!("\n\nmap_ident value: \n\n{:?}", $map_ident));
+        let $map_ident = match serde_json::to_value($map_ident).ok()? {
+            serde_json::Value::Array(arr) => Some(map_literal!("values"; arr)),
+            serde_json::Value::Object(obj) => Some(serde_json::to_value(obj).expect("failed to convert the obj into a Value")),
+            serde_json::Value::Null => None,
+            _ => panic!("Not sure how to convert this type into a map for output!")
+        };
+
+        if let Some(val) = $map_ident {
+            serde_json::from_value(val).ok()
+        } else {
+            None
+        }
     };
 }
 
@@ -42,10 +54,53 @@ macro_rules! map_literal {
 #[macro_export]
 macro_rules! map_access {
     ($map:expr,$($key: expr),*) => {{
-        let output = $map;
-        $(let output = output.get($key).unwrap();)*
-        output.clone()
+        substreams::log::println(format!("{:?}", $map));
+        let output: serde_json::Map<String, Value> = serde_json::from_value(serde_json::to_value($map).ok()?).ok()?;
+        $(let output = output.get($key)?;)*
+        Some(output.clone())
     }};
+}
+
+/// A helper macro that allows us to convert any struct into a serde_json::Map
+#[macro_export]
+macro_rules! map {
+    ($value: expr, $callback: expr) => {
+        if let Some(val) = $value.as_ref() {
+            match val {
+                serde_json::Value::Array(arr) => Some(
+                    arr.into_iter()
+                        .filter_map($callback)
+                        .map(|element| serde_json::to_value(element).unwrap())
+                        .collect(),
+                ),
+                serde_json::Value::Object(obj) => {
+                    if let Some(serde_json::Value::Array(arr)) = obj.get("values").as_ref() {
+                        Some(
+                            arr.into_iter()
+                                .filter_map($callback)
+                                .map(|element| serde_json::to_value(element).unwrap())
+                                .collect(),
+                        )
+                    } else {
+                        None
+                    }
+                }
+                _ => {
+                    substreams::log::println(format!(
+                        "Failed quietly, couldn't map over null or not an array! {:?}",
+                        $value
+                    ));
+                    None
+                }
+            }
+        } else {
+            substreams::log::println(format!(
+                "Failed quietly, couldn't map over null or not an array! {:?}",
+                $value
+            ));
+            None
+        };
+    };
 }
 
 /// A helper macro that allows us to convert any struct into a serde_json::Map
@@ -53,9 +108,9 @@ macro_rules! map_access {
 macro_rules! to_map {
     ($value: expr) => {
         serde_json::from_value::<serde_json::Map<_, serde_json::Value>>(
-            serde_json::to_value($value).unwrap(),
+            serde_json::to_value($value).expect("hi"),
         )
-        .unwrap()
+        .expect("hello")
     };
 }
 
@@ -63,8 +118,18 @@ macro_rules! to_map {
 #[macro_export]
 macro_rules! to_array {
     ($value: expr) => {
-        serde_json::from_str::<Vec<serde_json::Value>>(&serde_json::to_string(&$value).unwrap())
-            .unwrap()
+        if let Some(value) = $value {
+            let as_value: serde_json::Value = serde_json::to_value(value).expect(
+                "Couldn't convert value into serde_json Value in as_array! macro invocation",
+            );
+            match as_value {
+                serde_json::Value::Array(arr) => Some(arr),
+                _ => None,
+            }
+        } else {
+            substreams::log::println(format!("VALUE IS NONE!"));
+            None
+        }
     };
 }
 
