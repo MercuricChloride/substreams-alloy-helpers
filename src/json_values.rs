@@ -1,4 +1,7 @@
-use std::ops::{Add, Div, Mul, Sub};
+use std::{
+    fmt::Debug,
+    ops::{Add, Div, Mul, Sub},
+};
 
 use crate::{aliases::*, parse_as};
 use alloy_primitives::U8;
@@ -30,7 +33,7 @@ macro_rules! impl_from {
     };
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct SolidityJsonValue {
     /// Represents the type of the value
     kind: String,
@@ -74,6 +77,30 @@ impl SolidityType {
                 SolidityType::Uint(sum)
             }
             _ => panic!("Can't add {self:?} and {value:?}! Both values must be a uint!"),
+        }
+    }
+}
+
+impl ToString for SolidityType {
+    fn to_string(&self) -> String {
+        match &self {
+            SolidityType::Boolean(val) => {
+                let value: u8 = val.to();
+                if value == 0 {
+                    "false".to_string()
+                } else {
+                    "true".to_string()
+                }
+            }
+            SolidityType::Enum(val) => {
+                let value: u8 = val.to();
+                value.to_string()
+            }
+            SolidityType::Uint(val) => val.to_string(),
+            SolidityType::Address(val) => val.to_string(),
+            SolidityType::ByteArray(val) => val.to_string(),
+            SolidityType::FixedArray(val) => val.to_string(),
+            SolidityType::String(val) => val.to_string(),
         }
     }
 }
@@ -202,6 +229,13 @@ impl From<bool> for SolidityType {
     }
 }
 
+impl From<bool> for SolidityJsonValue {
+    fn from(value: bool) -> Self {
+        let value: SolidityType = value.into();
+        value.into()
+    }
+}
+
 // impl<T: SolEnum> From<T> for SolidityType {
 //     fn from(value: T) -> Self {
 //         let as_u8: u8 = value
@@ -220,6 +254,13 @@ where
 
     fn add(self, rhs: T) -> Self::Output {
         let rhs: SolidityType = Into::into(rhs);
+        // NOTE If we add something to a string, it will concat. I'm not sure if I will keep this or not.
+        if let SolidityType::String(str) = &self {
+            let mut return_string = str.clone();
+            return_string.push_str(&rhs.to_string());
+            return SolidityType::String(return_string);
+        }
+
         match (&self, &rhs) {
             (SolidityType::Uint(lh), SolidityType::Uint(rh)) => {
                 let sum = lh + rh;
@@ -280,6 +321,32 @@ where
                 SolidityType::Uint(sum)
             }
             _ => panic!("Can't add {self:?} and {rhs:?}! Both values must be a uint!"),
+        }
+    }
+}
+
+impl<T> PartialEq<T> for SolidityType
+where
+    SolidityType: From<T>,
+    T: Clone + Debug,
+{
+    fn eq(&self, other: &T) -> bool {
+        // TODO This isn't the most performant, but I don't think it's the end of the world
+        let rhs: SolidityType = Into::into(other.clone());
+        match (&self, &rhs) {
+            (SolidityType::Uint(lh), SolidityType::Uint(rh)) => lh == rh,
+            (SolidityType::Address(lh), SolidityType::Address(rh)) => lh == rh,
+            _ => panic!("Can't compare {self:?} and {other:?}"),
+        }
+    }
+
+    fn ne(&self, other: &T) -> bool {
+        // TODO This isn't the most performant, but I don't think it's the end of the world
+        let rhs: SolidityType = Into::into(other.clone());
+        match (&self, &rhs) {
+            (SolidityType::Uint(lh), SolidityType::Uint(rh)) => lh != rh,
+            (SolidityType::Address(lh), SolidityType::Address(rh)) => lh != rh,
+            _ => panic!("Can't compare {self:?} and {other:?}"),
         }
     }
 }
