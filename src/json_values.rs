@@ -1,4 +1,4 @@
-use std::ops::Add;
+use std::ops::{Add, Div, Mul, Sub};
 
 use crate::{aliases::*, parse_as};
 use alloy_primitives::U8;
@@ -49,6 +49,10 @@ pub enum SolidityType {
     String(String),
 }
 
+pub trait IntoSolType {
+    fn into_sol_type(self) -> SolidityType;
+}
+
 impl SolidityType {
     pub fn to_json_value(self) -> SolidityJsonValue {
         match self {
@@ -74,65 +78,6 @@ impl SolidityType {
     }
 }
 
-impl Add<SolidityType> for SolidityType {
-    type Output = Self;
-
-    fn add(self, rhs: SolidityType) -> Self::Output {
-        match (&self, &rhs) {
-            (SolidityType::Uint(lh), SolidityType::Uint(rh)) => {
-                let sum = lh + rh;
-                SolidityType::Uint(sum)
-            }
-            _ => panic!("Can't add {self:?} and {rhs:?}! Both values must be a uint!"),
-        }
-    }
-}
-
-impl Add<SolidityJsonValue> for SolidityType {
-    type Output = Self;
-
-    fn add(self, rhs: SolidityJsonValue) -> Self::Output {
-        let value: SolidityType = rhs.into();
-        match (&self, &value) {
-            (SolidityType::Uint(lh), SolidityType::Uint(rh)) => {
-                let sum = lh + rh;
-                SolidityType::Uint(sum)
-            }
-            _ => panic!("Can't add {self:?} and {value:?}! Both values must be a uint!"),
-        }
-    }
-}
-
-impl Add<serde_json::Value> for SolidityType {
-    type Output = Self;
-
-    fn add(self, rhs: serde_json::Value) -> Self::Output {
-        let value: SolidityType = rhs.into();
-        match (&self, &value) {
-            (SolidityType::Uint(lh), SolidityType::Uint(rh)) => {
-                let sum = lh + rh;
-                SolidityType::Uint(sum)
-            }
-            _ => panic!("Can't add {self:?} and {value:?}! Both values must be a uint!"),
-        }
-    }
-}
-
-impl Add<Option<serde_json::Value>> for SolidityType {
-    type Output = Self;
-
-    fn add(self, rhs: Option<serde_json::Value>) -> Self::Output {
-        let value: SolidityType = rhs.unwrap().into();
-        match (&self, &value) {
-            (SolidityType::Uint(lh), SolidityType::Uint(rh)) => {
-                let sum = lh + rh;
-                SolidityType::Uint(sum)
-            }
-            _ => panic!("Can't add {self:?} and {value:?}! Both values must be a uint!"),
-        }
-    }
-}
-
 // NOTE I might want to change this to try_from
 impl From<SolidityJsonValue> for SolidityType {
     fn from(value: SolidityJsonValue) -> Self {
@@ -144,6 +89,16 @@ impl From<SolidityJsonValue> for SolidityType {
 impl From<serde_json::Value> for SolidityType {
     fn from(value: serde_json::Value) -> Self {
         let as_json = SolidityJsonValue::from_value(&value).expect(&format!(
+            "Couldn't convert value {value:?} into SolidityJsonValue!"
+        ));
+        as_json.into()
+    }
+}
+
+// NOTE I might want to change this to try_from
+impl From<Option<serde_json::Value>> for SolidityType {
+    fn from(value: Option<serde_json::Value>) -> Self {
+        let as_json = SolidityJsonValue::from_value(&value.as_ref().unwrap()).expect(&format!(
             "Couldn't convert value {value:?} into SolidityJsonValue!"
         ));
         as_json.into()
@@ -255,3 +210,76 @@ impl From<bool> for SolidityType {
 //         SolidityType::Enum(as_u8)
 //     }
 // }
+
+// Binary Op Trait Implementations
+impl<T> Add<T> for SolidityType
+where
+    SolidityType: From<T>,
+{
+    type Output = Self;
+
+    fn add(self, rhs: T) -> Self::Output {
+        let rhs: SolidityType = Into::into(rhs);
+        match (&self, &rhs) {
+            (SolidityType::Uint(lh), SolidityType::Uint(rh)) => {
+                let sum = lh + rh;
+                SolidityType::Uint(sum)
+            }
+            _ => panic!("Can't add {self:?} and {rhs:?}! Both values must be a uint!"),
+        }
+    }
+}
+
+impl<T> Sub<T> for SolidityType
+where
+    SolidityType: From<T>,
+{
+    type Output = Self;
+
+    fn sub(self, rhs: T) -> Self::Output {
+        let rhs: SolidityType = Into::into(rhs);
+        match (&self, &rhs) {
+            (SolidityType::Uint(lh), SolidityType::Uint(rh)) => {
+                let sum = lh - rh;
+                SolidityType::Uint(sum)
+            }
+            _ => panic!("Can't add {self:?} and {rhs:?}! Both values must be a uint!"),
+        }
+    }
+}
+
+impl<T> Mul<T> for SolidityType
+where
+    SolidityType: From<T>,
+{
+    type Output = Self;
+
+    fn mul(self, rhs: T) -> Self::Output {
+        let rhs: SolidityType = Into::into(rhs);
+        match (&self, &rhs) {
+            (SolidityType::Uint(lh), SolidityType::Uint(rh)) => {
+                let sum = lh * rh;
+                SolidityType::Uint(sum)
+            }
+            _ => panic!("Can't add {self:?} and {rhs:?}! Both values must be a uint!"),
+        }
+    }
+}
+
+impl<T> Div<T> for SolidityType
+where
+    SolidityType: From<T>,
+{
+    type Output = Self;
+
+    fn div(self, rhs: T) -> Self::Output {
+        let rhs: SolidityType = Into::into(rhs);
+        match (&self, &rhs) {
+            (SolidityType::Uint(lh), SolidityType::Uint(rh)) => {
+                let sum = lh / rh;
+                SolidityType::Uint(sum)
+            }
+            _ => panic!("Can't add {self:?} and {rhs:?}! Both values must be a uint!"),
+        }
+    }
+}
