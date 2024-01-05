@@ -350,3 +350,19 @@ where
         }
     }
 }
+
+impl<T> PartialOrd<T> for SolidityType
+where
+    SolidityType: From<T>,
+    T: Clone + Debug,
+{
+    fn partial_cmp(&self, other: &T) -> Option<std::cmp::Ordering> {
+        // TODO This isn't the most performant, but I don't think it's the end of the world
+        let rhs: SolidityType = Into::into(other.clone());
+        match (&self, &rhs) {
+            (SolidityType::Uint(lh), SolidityType::Uint(rh)) => lh.partial_cmp(rh),
+            (SolidityType::Address(lh), SolidityType::Address(rh)) => lh.partial_cmp(rh),
+            _ => panic!("Can't compare {self:?} and {other:?}"),
+        }
+    }
+}
