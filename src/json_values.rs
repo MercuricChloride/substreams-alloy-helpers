@@ -1,6 +1,9 @@
+use std::ops::Add;
+
 use crate::{aliases::*, parse_as};
+use alloy_primitives::U8;
 use alloy_sol_macro::sol;
-use alloy_sol_types::sol_data::FixedArray;
+use alloy_sol_types::{sol_data::FixedArray, SolEnum};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use substreams::Hex;
@@ -35,8 +38,10 @@ pub struct SolidityJsonValue {
     value: String,
 }
 
+#[derive(Debug)]
 pub enum SolidityType {
     Boolean(U1),
+    Enum(U8),
     Uint(U256),
     Address(Address),
     ByteArray(Bytes),
@@ -53,6 +58,77 @@ impl SolidityType {
             SolidityType::ByteArray(val) => json_sol!("bytes", val),
             SolidityType::FixedArray(val) => json_sol!("array", val),
             SolidityType::String(val) => json_sol!("string", val),
+            SolidityType::Enum(val) => json_sol!("enum", val),
+        }
+    }
+
+    pub fn add<T: Into<SolidityType>>(self, value: T) -> SolidityType {
+        let value: SolidityType = value.into();
+        match (&self, &value) {
+            (SolidityType::Uint(lh), SolidityType::Uint(rh)) => {
+                let sum = lh + rh;
+                SolidityType::Uint(sum)
+            }
+            _ => panic!("Can't add {self:?} and {value:?}! Both values must be a uint!"),
+        }
+    }
+}
+
+impl Add<SolidityType> for SolidityType {
+    type Output = Self;
+
+    fn add(self, rhs: SolidityType) -> Self::Output {
+        match (&self, &rhs) {
+            (SolidityType::Uint(lh), SolidityType::Uint(rh)) => {
+                let sum = lh + rh;
+                SolidityType::Uint(sum)
+            }
+            _ => panic!("Can't add {self:?} and {rhs:?}! Both values must be a uint!"),
+        }
+    }
+}
+
+impl Add<SolidityJsonValue> for SolidityType {
+    type Output = Self;
+
+    fn add(self, rhs: SolidityJsonValue) -> Self::Output {
+        let value: SolidityType = rhs.into();
+        match (&self, &value) {
+            (SolidityType::Uint(lh), SolidityType::Uint(rh)) => {
+                let sum = lh + rh;
+                SolidityType::Uint(sum)
+            }
+            _ => panic!("Can't add {self:?} and {value:?}! Both values must be a uint!"),
+        }
+    }
+}
+
+impl Add<serde_json::Value> for SolidityType {
+    type Output = Self;
+
+    fn add(self, rhs: serde_json::Value) -> Self::Output {
+        let value: SolidityType = rhs.into();
+        match (&self, &value) {
+            (SolidityType::Uint(lh), SolidityType::Uint(rh)) => {
+                let sum = lh + rh;
+                SolidityType::Uint(sum)
+            }
+            _ => panic!("Can't add {self:?} and {value:?}! Both values must be a uint!"),
+        }
+    }
+}
+
+impl Add<Option<serde_json::Value>> for SolidityType {
+    type Output = Self;
+
+    fn add(self, rhs: Option<serde_json::Value>) -> Self::Output {
+        let value: SolidityType = rhs.unwrap().into();
+        match (&self, &value) {
+            (SolidityType::Uint(lh), SolidityType::Uint(rh)) => {
+                let sum = lh + rh;
+                SolidityType::Uint(sum)
+            }
+            _ => panic!("Can't add {self:?} and {value:?}! Both values must be a uint!"),
         }
     }
 }
@@ -61,6 +137,16 @@ impl SolidityType {
 impl From<SolidityJsonValue> for SolidityType {
     fn from(value: SolidityJsonValue) -> Self {
         value.to_sol_type()
+    }
+}
+
+// NOTE I might want to change this to try_from
+impl From<serde_json::Value> for SolidityType {
+    fn from(value: serde_json::Value) -> Self {
+        let as_json = SolidityJsonValue::from_value(&value).expect(&format!(
+            "Couldn't convert value {value:?} into SolidityJsonValue!"
+        ));
+        as_json.into()
     }
 }
 
@@ -160,3 +246,12 @@ impl From<bool> for SolidityType {
         SolidityType::Boolean(U1::from(value))
     }
 }
+
+// impl<T: SolEnum> From<T> for SolidityType {
+//     fn from(value: T) -> Self {
+//         let as_u8: u8 = value
+//             .try_into()
+//             .expect("couldn't convert an enum value to a u8!");
+//         SolidityType::Enum(as_u8)
+//     }
+// }

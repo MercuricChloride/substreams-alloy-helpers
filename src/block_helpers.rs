@@ -5,7 +5,7 @@ use crate::{
     sol_type,
 };
 use alloy_primitives::{FixedBytes, Log};
-use alloy_sol_types::SolEvent;
+use alloy_sol_types::{SolEnum, SolEvent};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use substreams_ethereum::{block_view::LogView, pb::eth::v2::Block};
