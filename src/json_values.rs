@@ -17,7 +17,7 @@ macro_rules! json_sol {
     ($kind: expr, $val: ident) => {
         SolidityJsonValue {
             kind: $kind.to_string(),
-            value: $val.to_string(),
+            value: ValueKind::Scalar($val.to_string()),
         }
     };
 }
@@ -38,7 +38,16 @@ pub struct SolidityJsonValue {
     /// Represents the type of the value
     kind: String,
     /// A hex string for the bytes in the value
-    value: String,
+    #[serde(flatten)]
+    value: ValueKind,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub enum ValueKind {
+    #[serde(rename = "value")]
+    Scalar(String),
+    #[serde(rename = "value")]
+    Compound(Vec<SolidityJsonValue>),
 }
 
 #[derive(Debug)]
@@ -50,6 +59,8 @@ pub enum SolidityType {
     ByteArray(Bytes),
     FixedArray(alloy_primitives::B256),
     String(String),
+    Tuple(Vec<SolidityType>),
+    List(Vec<SolidityType>),
 }
 
 pub trait IntoSolType {
@@ -66,6 +77,22 @@ impl SolidityType {
             SolidityType::FixedArray(val) => json_sol!("array", val),
             SolidityType::String(val) => json_sol!("string", val),
             SolidityType::Enum(val) => json_sol!("enum", val),
+            SolidityType::Tuple(val) => {
+                let val: Vec<SolidityJsonValue> =
+                    val.into_iter().map(|item| item.to_json_value()).collect();
+                SolidityJsonValue {
+                    kind: "tuple".to_string(),
+                    value: ValueKind::Compound(val),
+                }
+            }
+            SolidityType::List(val) => {
+                let val: Vec<SolidityJsonValue> =
+                    val.into_iter().map(|item| item.to_json_value()).collect();
+                SolidityJsonValue {
+                    kind: "list".to_string(),
+                    value: ValueKind::Compound(val),
+                }
+            }
         }
     }
 
@@ -101,6 +128,8 @@ impl ToString for SolidityType {
             SolidityType::ByteArray(val) => val.to_string(),
             SolidityType::FixedArray(val) => val.to_string(),
             SolidityType::String(val) => val.to_string(),
+            SolidityType::Tuple(_) => panic!("Can't convert a tuple to a string!"),
+            SolidityType::List(_) => panic!("Can't convert a list to a string!"),
         }
     }
 }
@@ -236,15 +265,6 @@ impl From<bool> for SolidityJsonValue {
     }
 }
 
-// impl<T: SolEnum> From<T> for SolidityType {
-//     fn from(value: T) -> Self {
-//         let as_u8: u8 = value
-//             .try_into()
-//             .expect("couldn't convert an enum value to a u8!");
-//         SolidityType::Enum(as_u8)
-//     }
-// }
-
 // Binary Op Trait Implementations
 impl<T> Add<T> for SolidityType
 where
@@ -361,6 +381,7 @@ where
         let rhs: SolidityType = Into::into(other.clone());
         match (&self, &rhs) {
             (SolidityType::Uint(lh), SolidityType::Uint(rh)) => lh.partial_cmp(rh),
+            (SolidityType::String(lh), SolidityType::String(rh)) => lh.partial_cmp(rh),
             (SolidityType::Address(lh), SolidityType::Address(rh)) => lh.partial_cmp(rh),
             _ => panic!("Can't compare {self:?} and {other:?}"),
         }

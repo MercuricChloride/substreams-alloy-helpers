@@ -91,8 +91,36 @@ macro_rules! map_literal {
 #[macro_export]
 macro_rules! map_access {
     ($map:expr,$($key: expr),*) => {{
-        //substreams::log::println(format!("{:?}", $map));
-        let output: serde_json::Map<String, Value> = serde_json::from_value(serde_json::to_value($map).ok()?).ok()?;
+        let as_value = serde_json::to_value($map).ok()?;
+        let output: serde_json::Map<String, Value> = serde_json::from_value(as_value).ok()?;
+        let output: serde_json::Map<String, Value> = match output.get("kind") {
+            Some(serde_json::Value::String(s)) => match s {
+                s if s.starts_with("tuple") => {
+                    let value = output.get("value").expect("A tuple should always have a value field").clone();
+                    if let serde_json::Value::Array(arr) = value {
+                        let arr = arr.into_iter().enumerate().map(|(index, value)| (index.to_string(), value));
+                        serde_json::Map::<String, Value>::from_iter(arr)
+                    } else {
+                        panic!("Tuple value field not an array!")
+                    }
+                    //serde_json::from_value().expect("Couldn't serialize tuple into Map")
+                }
+                s if s.starts_with("list") => {
+                    let value = output.get("value").expect("A list should always have a value field").clone();
+                    if let serde_json::Value::Array(arr) = value {
+                        let arr = arr.into_iter().enumerate().map(|(index, value)| (index.to_string(), value));
+                        serde_json::Map::<String, Value>::from_iter(arr)
+                    } else {
+                        panic!("List value field not an array!")
+                    }
+                    //serde_json::from_value(output.get("value").expect("A list should always have a value field").clone()).expect("Couldn't serialize list into Map")
+                }
+                _ => panic!("{:?}", s)
+            },
+            None => output,
+            _ => panic!("Trying to use a scalar type as a map! Don't do this pls, it's a logical error!")
+        };
+        substreams::log::println(format!("{:?}", &output));
         $(let output = output.get($key)?;)*
         Some(output.clone())
     }};
@@ -219,7 +247,12 @@ macro_rules! format_inputs {
 #[macro_export]
 macro_rules! parse_as {
     ($self: ident, $variant: ident) => {
-        SolidityType::$variant($self.value.parse().unwrap())
+        match $self.value {
+            ValueKind::Scalar(val) => SolidityType::$variant(val.parse().unwrap()),
+            ValueKind::Compound(val) => {
+                SolidityType::Tuple(val.into_iter().map(|item| item.to_sol_type()).collect())
+            }
+        }
     };
 }
 
