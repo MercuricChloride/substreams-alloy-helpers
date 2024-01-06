@@ -175,6 +175,24 @@ impl SolidityJsonValue {
             "bytes" => parse_as!(self, ByteArray),
             "string" => parse_as!(self, String),
             "address" => parse_as!(self, Address),
+            "list" => {
+                let value = self.value;
+                if let ValueKind::Compound(vals) = value {
+                    let vals = vals.into_iter().map(|item| item.to_sol_type()).collect();
+                    SolidityType::List(vals)
+                } else {
+                    panic!("Invalid cast to a sol type");
+                }
+            }
+            "tuple" => {
+                let value = self.value;
+                if let ValueKind::Compound(vals) = value {
+                    let vals = vals.into_iter().map(|item| item.to_sol_type()).collect();
+                    SolidityType::Tuple(vals)
+                } else {
+                    panic!("Invalid cast to a sol type");
+                }
+            }
             _ => panic!("Invalid cast to a sol type"),
         }
     }
