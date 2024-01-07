@@ -4,7 +4,7 @@
 macro_rules! loose_sol {
     ($($body:tt)*) => {
         sol! {
-            #[derive(::serde::Serialize, ::serde::Deserialize, ::substreams_alloy_macros::JsonSolTypes)]
+            #[derive(::serde::Serialize, ::serde::Deserialize, ::substreams_alloy_macros::JsonSolTypes, Debug)]
             $($body)*
         }
     };

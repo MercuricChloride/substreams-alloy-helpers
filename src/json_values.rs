@@ -252,8 +252,13 @@ impl SolidityJsonValue {
                     return Some(sol_type!(ByteArray, val));
                 }
 
-                // Otherwise we treat it as a String
-                Some(sol_type!(String, val))
+                // If the value starts with 0x, but all the other values failed
+                if val.starts_with("0x") {
+                    Some(sol_type!(Uint, val))
+                } else {
+                    // Otherwise we treat it as a String
+                    Some(sol_type!(String, val))
+                }
             }
 
             Value::Object(val) => {
