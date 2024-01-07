@@ -294,6 +294,9 @@ macro_rules! parse_as {
             ValueKind::Compound(val) => {
                 SolidityType::Tuple(val.into_iter().map(|item| item.to_sol_type()).collect())
             }
+            ValueKind::Map(val) => {
+                SolidityType::Struct(val.into_iter().map(|(k, v)| (k, v.to_sol_type())).collect())
+            }
         }
     };
 }

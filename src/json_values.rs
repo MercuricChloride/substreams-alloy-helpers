@@ -50,9 +50,11 @@ pub enum ValueKind {
     Scalar(String),
     #[serde(rename = "value")]
     Compound(Vec<SolidityJsonValue>),
+    #[serde(rename = "value")]
+    Map(HashMap<String, SolidityJsonValue>),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SolidityType {
     Boolean(U1),
     Enum(U8),
@@ -97,17 +99,14 @@ impl SolidityType {
                 }
             }
             SolidityType::Struct(val) => {
-                // The value of the "struct", is a vector of key value tuple pairs.
-                let val: Vec<SolidityJsonValue> = val
+                let val: HashMap<String, SolidityJsonValue> = val
                     .into_iter()
-                    .map(|(k, v)| {
-                        SolidityType::Tuple(vec![SolidityType::String(k), SolidityType::from(v)])
-                            .to_json_value()
-                    })
+                    .map(|(k, v)| (k, v.to_json_value()))
                     .collect();
+
                 SolidityJsonValue {
                     kind: "struct".to_string(),
-                    value: ValueKind::Compound(val),
+                    value: ValueKind::Map(val),
                 }
             }
         }
@@ -213,22 +212,14 @@ impl SolidityJsonValue {
             }
             "struct" => {
                 let value = self.value;
-                if let ValueKind::Compound(vals) = value {
-                    let vals = vals.into_iter().map(|item| item.to_sol_type()).map(|item| {
-                        if let SolidityType::Tuple(values) = item {
-                            // NOTE This should be safe because they should the tuple value should always contain a key and a value
-                            let key = values[0].to_string();
-                            let value = values[1].clone();
-                            (key, value)
-                        } else {
-                            panic!("Struct contains vector of something other than tuples!")
-                        }
-                    });
-                    let map = HashMap::<String, SolidityType>::from_iter(vals);
-                    SolidityType::Struct(map)
-                } else {
-                    panic!("The value of a struct should never be a Scalar value!");
+
+                if let ValueKind::Map(map) = value {
+                    let map: HashMap<String, SolidityType> =
+                        map.into_iter().map(|(k, v)| (k, v.to_sol_type())).collect();
+                    return SolidityType::Struct(map);
                 }
+
+                panic!("The value of a struct should never be a Scalar value!");
             }
             _ => panic!("Invalid cast to a sol type"),
         }
