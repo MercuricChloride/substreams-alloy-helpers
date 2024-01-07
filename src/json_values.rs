@@ -302,11 +302,20 @@ impl SolidityJsonValue {
                 //None
                 //Some(SolidityJsonValue::from_value(&serde_json::to_value(val).unwrap()).unwrap())
             }
-            // NOTE I don't think an array is ever actually returned from the types when serialized
-            Value::Array(_) => todo!("Array types shouldn't be returned?"),
+            Value::Array(arr) => {
+                // TODO Slow, but fine for now
+                let values: Vec<SolidityType> = arr
+                    .into_iter()
+                    .map(|value| SolidityJsonValue::guess_json_value(value).unwrap().into())
+                    .collect();
+
+                Some(SolidityType::List(values).into())
+            }
             Value::Null => todo!("Null types shouldn't be returned?"),
             // This should never be a number since all values are considered to be uint256 for our purposes
-            Value::Number(_) => todo!("Number types shouldn't be returned?"),
+            Value::Number(num) => {
+                Some(SolidityType::Uint(U256::from(num.as_i64().unwrap())).into())
+            }
         }
     }
 }

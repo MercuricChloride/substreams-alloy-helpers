@@ -4,7 +4,7 @@
 macro_rules! loose_sol {
     ($($body:tt)*) => {
         sol! {
-            #[derive(::serde::Serialize, ::serde::Deserialize, ::substreams_alloy_macros::JsonSolTypes, Debug)]
+            #[derive(::serde::Serialize, ::serde::Deserialize, Debug)]
             $($body)*
         }
     };
@@ -92,40 +92,6 @@ macro_rules! map_literal {
 macro_rules! map_access {
     ($map:expr,$($key: expr),*) => {{
         let output = serde_json::to_value($map).ok()?;
-        //let output: serde_json::Map<String, Value> = serde_json::from_value(as_value).ok()?;
-
-        // let output: serde_json::Value = match output.get("kind") {
-        //     Some(serde_json::Value::String(s)) => match s {
-        //         s if s.starts_with("tuple") => {
-        //             // get the values of the tuple
-        //             let value = output.get("value").expect("A tuple should always have a value field").clone();
-
-        //             // if the tuple values are an array, convert it into a map
-        //             if let serde_json::Value::Array(arr) = value {
-        //                 let arr = arr.into_iter().enumerate().map(|(index, value)| (index.to_string(), value));
-        //                 serde_json::to_value(serde_json::Map::<String, Value>::from_iter(arr)).unwrap()
-        //             } else {
-        //                 panic!("Tuple value field not an array!")
-        //             }
-        //         }
-        //         s if s.starts_with("list") => {
-        //             // get the values of the list
-        //             let value = output.get("value").expect("A list should always have a value field").clone();
-
-        //             // if the values of the list are an array, convert into a map
-        //             if let serde_json::Value::Array(arr) = value {
-        //                 let arr = arr.into_iter().enumerate().map(|(index, value)| (index.to_string(), value));
-        //                 serde_json::to_value(serde_json::Map::<String, Value>::from_iter(arr)).unwrap()
-        //             } else {
-        //                 panic!("List value field not an array!")
-        //             }
-        //         }
-        //         _ => panic!("WEIRD KIND WE SHOULDN't BE INDEXING!{:?}", s)
-        //     },
-        //     None => output,
-        //     _ => panic!("Trying to use a scalar type as a map! Don't do this pls, it's a logical error!")
-        // };
-
         $(
         let output: serde_json::Value = match output.get("kind") {
             Some(serde_json::Value::String(s)) => match s {
@@ -151,6 +117,17 @@ macro_rules! map_access {
                         serde_json::to_value(serde_json::Map::<String, Value>::from_iter(arr)).unwrap()
                     } else {
                         panic!("List value field not an array!")
+                    }
+                }
+                s if s.starts_with("struct") => {
+                    // get the values of the list
+                    let value = output.get("value").expect("A struct should always have a value field").clone();
+
+                    // if the values of the list are an array, convert into a map
+                    if let serde_json::Value::Object(map) = value {
+                        serde_json::to_value(map).unwrap()
+                    } else {
+                        panic!("Struct value field not a map!")
                     }
                 }
                 _ => panic!("WEIRD KIND WE SHOULDN't BE INDEXING!{:?}", s)

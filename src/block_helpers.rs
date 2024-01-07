@@ -58,17 +58,13 @@ impl BlockHelpers for Block {
     }
 }
 
-pub trait JsonSolTypes {
-    fn as_json(self) -> Value;
-}
-
 pub trait EventHelpers {
     fn get_events(blk: &Block, addresses: &[&Address]) -> Vec<prost_wkt_types::Struct>;
 }
 
 impl<T> EventHelpers for T
 where
-    T: SolEvent + Serialize + JsonSolTypes,
+    T: SolEvent + Serialize,
 {
     fn get_events(blk: &Block, addresses: &[&Address]) -> Vec<prost_wkt_types::Struct> {
         let validate = false;
@@ -83,16 +79,27 @@ where
                 }
             })
             .map(|(event, meta)| {
-                let mut map: Map<String, Value> = serde_json::from_value(event.as_json()).unwrap();
-                let key = String::from("tx_meta");
-                if map.contains_key(&key) {
-                    panic!("Map contains the tx_meta key already!");
+                let map = serde_json::to_value(event).unwrap();
+                let event_guess = SolidityJsonValue::guess_json_value(&map).unwrap();
+                let as_value = serde_json::to_value(event_guess).unwrap();
+                if let Value::Object(mut map) = as_value {
+                    let key = String::from("tx_meta");
+
+                    if map.get(&key).is_some() {
+                        panic!("Map contains the tx_meta key already!");
+                    }
+
+                    if let Some(Value::Object(map)) = map.get_mut("value") {
+                        map.insert(key, serde_json::to_value(meta).unwrap());
+                    } else {
+                        panic!("Couldn't insert tx_meta into Struct value field!");
+                    }
+
+                    serde_json::from_value(map.into())
+                        .expect("Failed convert event into protobuf struct")
+                } else {
+                    panic!("Event wasn't found to be a serde_json::Value Object!?");
                 }
-
-                map.insert(key, serde_json::to_value(meta).unwrap());
-
-                serde_json::from_value(map.into())
-                    .expect("Failed convert event into protobuf struct")
             })
             .collect()
     }
