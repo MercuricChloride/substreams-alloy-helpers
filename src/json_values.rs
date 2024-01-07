@@ -1,12 +1,14 @@
 use std::{
+    collections::HashMap,
     fmt::Debug,
     ops::{Add, Div, Mul, Sub},
 };
 
-use crate::{aliases::*, parse_as};
+use crate::{aliases::*, parse_as, sol_type};
 use alloy_primitives::U8;
 use alloy_sol_macro::sol;
 use alloy_sol_types::{sol_data::FixedArray, SolEnum};
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use substreams::Hex;
@@ -50,7 +52,7 @@ pub enum ValueKind {
     Compound(Vec<SolidityJsonValue>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum SolidityType {
     Boolean(U1),
     Enum(U8),
@@ -61,6 +63,7 @@ pub enum SolidityType {
     String(String),
     Tuple(Vec<SolidityType>),
     List(Vec<SolidityType>),
+    Struct(HashMap<String, SolidityType>),
 }
 
 pub trait IntoSolType {
@@ -90,6 +93,20 @@ impl SolidityType {
                     val.into_iter().map(|item| item.to_json_value()).collect();
                 SolidityJsonValue {
                     kind: "list".to_string(),
+                    value: ValueKind::Compound(val),
+                }
+            }
+            SolidityType::Struct(val) => {
+                // The value of the "struct", is a vector of key value tuple pairs.
+                let val: Vec<SolidityJsonValue> = val
+                    .into_iter()
+                    .map(|(k, v)| {
+                        SolidityType::Tuple(vec![SolidityType::String(k), SolidityType::from(v)])
+                            .to_json_value()
+                    })
+                    .collect();
+                SolidityJsonValue {
+                    kind: "struct".to_string(),
                     value: ValueKind::Compound(val),
                 }
             }
@@ -130,6 +147,7 @@ impl ToString for SolidityType {
             SolidityType::String(val) => val.to_string(),
             SolidityType::Tuple(_) => panic!("Can't convert a tuple to a string!"),
             SolidityType::List(_) => panic!("Can't convert a list to a string!"),
+            SolidityType::Struct(_) => panic!("Can't convert a struct to a string!"),
         }
     }
 }
@@ -142,8 +160,8 @@ impl From<SolidityJsonValue> for SolidityType {
 }
 
 // NOTE I might want to change this to try_from
-impl From<serde_json::Value> for SolidityType {
-    fn from(value: serde_json::Value) -> Self {
+impl From<Value> for SolidityType {
+    fn from(value: Value) -> Self {
         let as_json = SolidityJsonValue::from_value(&value).expect(&format!(
             "Couldn't convert value {value:?} into SolidityJsonValue!"
         ));
@@ -152,8 +170,8 @@ impl From<serde_json::Value> for SolidityType {
 }
 
 // NOTE I might want to change this to try_from
-impl From<Option<serde_json::Value>> for SolidityType {
-    fn from(value: Option<serde_json::Value>) -> Self {
+impl From<Option<Value>> for SolidityType {
+    fn from(value: Option<Value>) -> Self {
         let as_json = SolidityJsonValue::from_value(&value.as_ref().unwrap()).expect(&format!(
             "Couldn't convert value {value:?} into SolidityJsonValue!"
         ));
@@ -193,12 +211,102 @@ impl SolidityJsonValue {
                     panic!("Invalid cast to a sol type");
                 }
             }
+            "struct" => {
+                let value = self.value;
+                if let ValueKind::Compound(vals) = value {
+                    let vals = vals.into_iter().map(|item| item.to_sol_type()).map(|item| {
+                        if let SolidityType::Tuple(values) = item {
+                            // NOTE This should be safe because they should the tuple value should always contain a key and a value
+                            let key = values[0].to_string();
+                            let value = values[1].clone();
+                            (key, value)
+                        } else {
+                            panic!("Struct contains vector of something other than tuples!")
+                        }
+                    });
+                    let map = HashMap::<String, SolidityType>::from_iter(vals);
+                    SolidityType::Struct(map)
+                } else {
+                    panic!("The value of a struct should never be a Scalar value!");
+                }
+            }
             _ => panic!("Invalid cast to a sol type"),
         }
     }
 
-    pub fn from_value(value: &serde_json::Value) -> Option<SolidityJsonValue> {
+    pub fn from_value(value: &Value) -> Option<SolidityJsonValue> {
         serde_json::from_value(value.clone()).ok()
+    }
+
+    /// This function takes in a serde json value, and tries to guess the solidity type it represents, if any.
+    /// Note that this can't tell the difference between bytes values and uints because they are represented as hex values all the same.
+    pub fn guess_json_value(value: &Value) -> Option<SolidityJsonValue> {
+        match value {
+            Value::Bool(val) => Some(val.clone().into()),
+            Value::String(val) => {
+                // Address Check
+                if val.starts_with("0x") && val.len() == 42 {
+                    return Some(sol_type!(Address, val));
+                }
+
+                // Bytes32 / Uint256 Check
+                // NOTE We are going to treat these as uints for now. Might want to change to bytes?
+                if val.starts_with("0x") && val.len() == 66 {
+                    return Some(sol_type!(Uint, val));
+                }
+
+                // Bytes check
+                if val.starts_with("0x") && val.len() > 66 {
+                    return Some(sol_type!(ByteArray, val));
+                }
+
+                // Otherwise we treat it as a String
+                Some(sol_type!(String, val))
+            }
+
+            Value::Object(val) => {
+                // tuple check
+                let mut keys = val.keys();
+                let key_regex = Regex::new(r"_\d+").unwrap();
+                let keys_match = keys.all(|key| {
+                    let re_match = key_regex.find(key);
+                    if let Some(re_match) = re_match {
+                        re_match.as_str() == key
+                    } else {
+                        false
+                    }
+                });
+
+                // if the keys match the pattern of _0, _1, etc, it's a tuple.
+                if keys_match {
+                    let values: Vec<SolidityType> = val
+                        .values()
+                        .map(|value| SolidityJsonValue::guess_json_value(value).unwrap().into()) // TODO Slow, but fine for now
+                        .collect();
+                    return Some(SolidityType::Tuple(values).into());
+                } else {
+                    // Otherwise if they don't match, it's a struct
+                    let kvs = val
+                        .into_iter()
+                        .map(|(key, value)| {
+                            (
+                                key.to_string(),
+                                SolidityJsonValue::guess_json_value(value).unwrap().into(),
+                            )
+                        })
+                        .collect::<HashMap<String, SolidityType>>();
+                    return Some(SolidityType::Struct(kvs).to_json_value());
+                }
+
+                //None
+                //Some(SolidityJsonValue::from_value(&serde_json::to_value(val).unwrap()).unwrap())
+            }
+            // NOTE I don't think an array is ever actually returned from the types when serialized
+            Value::Array(_) => todo!("Array types shouldn't be returned?"),
+            Value::Null => todo!("Null types shouldn't be returned?"),
+            // This should never be a number since all values are considered to be uint256 for our purposes
+            Value::Number(_) => todo!("Number types shouldn't be returned?"),
+        }
     }
 }
 

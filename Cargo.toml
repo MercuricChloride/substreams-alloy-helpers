@@ -28,3 +28,4 @@ alloy-primitives = "0.5.3"
 strum = { version = "0.24", features = ["derive"] }
 struct_iterable = "0.1.1"
 substreams-alloy-macros = { path = "/home/alexandergusev/substreams/substreams_alloy_macros" }
+regex = "1.10.2"

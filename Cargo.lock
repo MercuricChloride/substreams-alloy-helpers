@@ -1479,6 +1479,7 @@ dependencies = [
  "prost-types",
  "prost-wkt",
  "prost-wkt-types",
+ "regex",
  "serde",
  "serde_json",
  "struct_iterable",
