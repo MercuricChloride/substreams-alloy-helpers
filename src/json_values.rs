@@ -204,7 +204,8 @@ impl SolidityJsonValue {
             "tuple" => {
                 let value = self.value;
                 if let ValueKind::Compound(vals) = value {
-                    let vals = vals.into_iter().map(|item| item.to_sol_type()).collect();
+                    let vals: Vec<SolidityType> =
+                        vals.into_iter().map(|item| item.to_sol_type()).collect();
                     SolidityType::Tuple(vals)
                 } else {
                     panic!("Invalid cast to a sol type");
@@ -274,7 +275,11 @@ impl SolidityJsonValue {
                         .values()
                         .map(|value| SolidityJsonValue::guess_json_value(value).unwrap().into()) // TODO Slow, but fine for now
                         .collect();
-                    return Some(SolidityType::Tuple(values).into());
+                    if values.len() == 1 {
+                        return Some(values[0].clone().into());
+                    } else {
+                        return Some(SolidityType::Tuple(values).into());
+                    }
                 } else {
                     // Otherwise if they don't match, it's a struct
                     let kvs = val
