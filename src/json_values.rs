@@ -35,6 +35,20 @@ macro_rules! impl_from {
     };
 }
 
+macro_rules! impl_to {
+    ($input: ty, $variant: ident) => {
+        impl From<SolidityType> for $input {
+            fn from(val: SolidityType) -> Self {
+                if let SolidityType::$variant(value) = val {
+                    value.into()
+                } else {
+                    panic!("Couldn't convert into variant!");
+                }
+            }
+        }
+    };
+}
+
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct SolidityJsonValue {
     /// Represents the type of the value
@@ -298,9 +312,6 @@ impl SolidityJsonValue {
                         .collect::<HashMap<String, SolidityType>>();
                     return Some(SolidityType::Struct(kvs).to_json_value());
                 }
-
-                //None
-                //Some(SolidityJsonValue::from_value(&serde_json::to_value(val).unwrap()).unwrap())
             }
             Value::Array(arr) => {
                 // TODO Slow, but fine for now
@@ -312,7 +323,7 @@ impl SolidityJsonValue {
                 Some(SolidityType::List(values).into())
             }
             Value::Null => todo!("Null types shouldn't be returned?"),
-            // This should never be a number since all values are considered to be uint256 for our purposes
+            // NOTE The only time this is returned is a number less than i32
             Value::Number(num) => {
                 Some(SolidityType::Uint(U256::from(num.as_i64().unwrap())).into())
             }
@@ -372,11 +383,21 @@ pub fn format_value(value: &ethereum_abi::Value) -> Value {
 }
 
 impl_from!(Address, Address);
+impl_to!(Address, Address);
+
 impl_from!(String, String);
+impl_to!(String, String);
+
 impl_from!(U1, Boolean);
+
 impl_from!(alloy_primitives::U256, Uint);
+impl_to!(alloy_primitives::U256, Uint);
+
 impl_from!(Bytes, ByteArray);
+impl_to!(Bytes, ByteArray);
+
 impl_from!(alloy_primitives::B256, FixedArray);
+impl_to!(alloy_primitives::B256, FixedArray);
 
 impl From<Vec<u8>> for SolidityType {
     fn from(value: Vec<u8>) -> Self {
@@ -394,10 +415,31 @@ impl From<bool> for SolidityType {
     }
 }
 
+impl From<SolidityType> for bool {
+    fn from(value: SolidityType) -> Self {
+        if let SolidityType::Boolean(val) = value {
+            let value: u8 = val.to();
+            if value == 0 {
+                false
+            } else {
+                true
+            }
+        } else {
+            panic!("Tried to convert a non boolean value into a boolean!");
+        }
+    }
+}
+
 impl From<bool> for SolidityJsonValue {
     fn from(value: bool) -> Self {
         let value: SolidityType = value.into();
         value.into()
+    }
+}
+
+impl From<SolidityJsonValue> for bool {
+    fn from(value: SolidityJsonValue) -> Self {
+        value.to_sol_type().into()
     }
 }
 
