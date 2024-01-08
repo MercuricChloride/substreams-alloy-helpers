@@ -1485,17 +1485,8 @@ dependencies = [
  "struct_iterable",
  "strum",
  "substreams",
- "substreams-alloy-macros",
  "substreams-database-change",
  "substreams-ethereum",
-]
-
-[[package]]
-name = "substreams-alloy-macros"
-version = "0.1.0"
-dependencies = [
- "quote",
- "syn 1.0.109",
 ]
 
 [[package]]
