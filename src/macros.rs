@@ -189,6 +189,19 @@ macro_rules! filter {
             match val {
                 serde_json::Value::Array(arr) => Some(
                     arr.into_iter()
+                        .map($callback)
+                        .filter(|item| {
+                            if let SolidityType::Boolean(b) = item.to_sol_type() {
+                                let value: u8 = val.to();
+                                if value == 0 {
+                                    false
+                                } else {
+                                    true
+                                }
+                            } else {
+                                false
+                            }
+                        })
                         .filter($callback)
                         .map(|element| serde_json::to_value(element).unwrap())
                         .collect(),
