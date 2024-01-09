@@ -17,7 +17,6 @@ macro_rules! with_map {
 
         $($body)*
 
-        //substreams::log::println(format!("\n\nmap_ident value: \n\n{:?}", $map_ident));
         let $map_ident = match serde_json::to_value($map_ident).ok()? {
             serde_json::Value::Array(arr) => {
                 if arr.is_empty() {
@@ -198,7 +197,19 @@ macro_rules! filter {
                     if let Some(serde_json::Value::Array(arr)) = obj.get("values").as_ref() {
                         Some(
                             arr.into_iter()
-                                .filter($callback)
+                                .map($callback)
+                                .filter(|item| {
+                                    if let SolidityType::Boolean(b) = item.to_sol_type() {
+                                        let value: u8 = val.to();
+                                        if value == 0 {
+                                            false
+                                        } else {
+                                            true
+                                        }
+                                    } else {
+                                        false
+                                    }
+                                })
                                 .map(|element| serde_json::to_value(element).unwrap())
                                 .collect(),
                         )
