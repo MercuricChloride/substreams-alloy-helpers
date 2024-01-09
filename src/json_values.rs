@@ -69,6 +69,7 @@ pub enum ValueKind {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", content = "value", rename_all = "camelCase")]
 pub enum SolidityType {
     Boolean(U1),
     Enum(U8),
@@ -563,5 +564,87 @@ where
             (SolidityType::Address(lh), SolidityType::Address(rh)) => lh.partial_cmp(rh),
             _ => panic!("Can't compare {self:?} and {other:?}"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use alloy_primitives::address;
+
+    use super::*;
+
+    #[test]
+    fn test_serializations() {
+        let solidity_value = SolidityType::from(false);
+        let as_value = serde_json::to_string_pretty(&solidity_value).unwrap();
+        println!("Bool: {}", &as_value);
+        let from_value: SolidityType = serde_json::from_str(&&as_value).unwrap();
+        println!("Bool Deserialized: {:?}", &from_value);
+
+        let solidity_value = SolidityType::Enum(U8::from(2));
+        let as_value = serde_json::to_string_pretty(&solidity_value).unwrap();
+        println!("Enum: {}", &as_value);
+        let from_value: SolidityType = serde_json::from_str(&&as_value).unwrap();
+        println!("Enum Deserialized: {:?}", &from_value);
+
+        let solidity_value = SolidityType::Uint(U256::from(42069));
+        let as_value = serde_json::to_string_pretty(&solidity_value).unwrap();
+        println!("Uint: {}", &as_value);
+        let from_value: SolidityType = serde_json::from_str(&&as_value).unwrap();
+        println!("Uint Deserialized: {:?}", &from_value);
+
+        let solidity_value =
+            SolidityType::Address(address!("000000000000Ad05Ccc4F10045630fb830B95127"));
+        let as_value = serde_json::to_string_pretty(&solidity_value).unwrap();
+        println!("Address: {}", &as_value);
+        let from_value: SolidityType = serde_json::from_str(&&as_value).unwrap();
+        println!("Address Deserialized: {:?}", &from_value);
+
+        // TODO BYTES!
+        // TODO FIXEDARRAY!
+
+        let solidity_value = SolidityType::from("Hello World!".to_string());
+        let as_value = serde_json::to_string_pretty(&solidity_value).unwrap();
+        println!("String: {}", &as_value);
+        let from_value: SolidityType = serde_json::from_str(&&as_value).unwrap();
+        println!("String Deserialized: {:?}", &from_value);
+
+        let solidity_value = SolidityType::Tuple(vec![
+            SolidityType::from(false),
+            SolidityType::Address(address!("000000000000Ad05Ccc4F10045630fb830B95127")),
+        ]);
+        let as_value = serde_json::to_string_pretty(&solidity_value).unwrap();
+        println!("Tuple: {}", &as_value);
+        let from_value: SolidityType = serde_json::from_str(&&as_value).unwrap();
+        println!("Tuple Deserialized: {:?}", &from_value);
+
+        let solidity_value = SolidityType::List(vec![
+            SolidityType::from(false),
+            SolidityType::Address(address!("000000000000Ad05Ccc4F10045630fb830B95127")),
+        ]);
+        let as_value = serde_json::to_string_pretty(&solidity_value).unwrap();
+        println!("List: {}", &as_value);
+        let from_value: SolidityType = serde_json::from_str(&&as_value).unwrap();
+        println!("List Deserialized: {:?}", &from_value);
+
+        let mut struct_map: HashMap<String, SolidityType> = HashMap::new();
+        struct_map.insert("bool".to_string(), SolidityType::from(false));
+        struct_map.insert(
+            "addr".to_string(),
+            SolidityType::Address(address!("000000000000Ad05Ccc4F10045630fb830B95127")),
+        );
+        struct_map.insert(
+            "foo".to_string(),
+            SolidityType::List(vec![
+                SolidityType::from(false),
+                SolidityType::Address(address!("000000000000Ad05Ccc4F10045630fb830B95127")),
+            ]),
+        );
+
+        let solidity_value = SolidityType::Struct(struct_map);
+        let as_value = serde_json::to_string_pretty(&solidity_value).unwrap();
+        println!("Map: {}", &as_value);
+        let from_value: SolidityType = serde_json::from_str(&&as_value).unwrap();
+        println!("Map Deserialized: {:?}", &from_value);
     }
 }
