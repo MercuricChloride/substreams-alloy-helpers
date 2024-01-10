@@ -17,12 +17,13 @@ macro_rules! with_map {
 
         $($body)*
 
+        serde_json::from_value(serde_json::to_value($map_ident).unwrap()).unwrap()
         // NOTE This is pretty slow, so I will speed this up eventually
-        let maybe_value = $map_ident.to_maybe_value();
-        match maybe_value {
-            Some(val) => serde_json::from_value(val).unwrap(),
-            None => None,
-        }
+        // let maybe_value = $map_ident.to_maybe_value();
+        // match maybe_value {
+        //     Some(val) => serde_json::from_value(val).unwrap(),
+        //     None => None,
+        // }
     };
 }
 

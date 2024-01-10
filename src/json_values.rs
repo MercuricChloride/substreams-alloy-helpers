@@ -239,40 +239,38 @@ impl SolidityType {
             SolidityType::Tuple(vals) => {
                 let values: Vec<SolidityType> = vals
                     .iter()
-                    .map(callback)
-                    .filter(|item| {
-                        if let SolidityType::Boolean(val) = item {
+                    .filter_map(|item| {
+                        let callback_value = callback(item);
+                        if let SolidityType::Boolean(val) = callback_value {
                             let value: u8 = val.to();
                             if value == 0 {
-                                false
+                                None
                             } else {
-                                true
+                                Some(item.clone())
                             }
                         } else {
                             panic!("Tried to filter over a tuple, but found a non boolean value!")
                         }
                     })
-                    .map(|item| item.clone())
                     .collect();
                 SolidityType::List(values)
             }
             SolidityType::List(list) => {
                 let values: Vec<SolidityType> = list
                     .iter()
-                    .map(callback)
-                    .filter(|item| {
-                        if let SolidityType::Boolean(val) = item {
+                    .filter_map(|item| {
+                        let callback_value = callback(item);
+                        if let SolidityType::Boolean(val) = callback_value {
                             let value: u8 = val.to();
                             if value == 0 {
-                                false
+                                None
                             } else {
-                                true
+                                Some(item.clone())
                             }
                         } else {
-                            panic!("Tried to filter over a list, but found a non boolean value!")
+                            panic!("Tried to filter over a tuple, but found a non boolean value!")
                         }
                     })
-                    .map(|item| item.clone())
                     .collect();
                 SolidityType::List(values)
             }
@@ -284,38 +282,37 @@ impl SolidityType {
     pub fn to_maybe_value(&self) -> Option<Value> {
         match self {
             SolidityType::Tuple(vals) => {
-                if vals.is_empty() {
+                if vals.len() == 0 {
                     return None;
+                } else {
+                    Some(serde_json::to_value(self).unwrap())
                 }
             }
             SolidityType::List(vals) => {
-                if vals.is_empty() {
+                if vals.len() == 0 {
                     return None;
+                } else {
+                    Some(serde_json::to_value(self).unwrap())
                 }
             }
             SolidityType::Struct(map) => {
-                if map.is_empty() {
-                    return None;
-                }
+                let iter = map
+                    .into_iter()
+                    .map(|(k, v)| (k, v.to_maybe_value()))
+                    .filter(|(_k, v)| v.is_some())
+                    .map(|(k, v)| (k, v.unwrap()))
+                    .collect::<Vec<_>>();
 
-                let recur_iter = HashMap::<&String, Value>::from_iter(
-                    map.into_iter()
-                        .map(|(k, v)| (k, v.to_maybe_value()))
-                        .filter_map(|(k, v)| match v {
-                            Some(v) => Some((k, v)),
-                            None => None,
-                        }),
-                );
+                let recur_iter = HashMap::<&String, Value>::from_iter(iter);
 
-                if recur_iter.is_empty() {
+                if recur_iter.len() == 0 {
                     return None;
                 } else {
-                    return serde_json::to_value(recur_iter).ok();
+                    Some(serde_json::to_value(recur_iter).unwrap())
                 }
             }
-            _ => {}
+            _ => Some(serde_json::to_value(self).unwrap()),
         }
-        serde_json::to_value(self).ok()
     }
 }
 
@@ -350,6 +347,12 @@ impl ToString for SolidityType {
 impl From<Value> for SolidityType {
     fn from(value: Value) -> Self {
         serde_json::from_value(value).unwrap()
+    }
+}
+
+impl From<&SolidityType> for SolidityType {
+    fn from(value: &SolidityType) -> Self {
+        value.into()
     }
 }
 
