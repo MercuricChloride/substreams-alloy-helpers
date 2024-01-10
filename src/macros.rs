@@ -61,17 +61,6 @@ macro_rules! filter {
     };
 }
 
-/// A helper macro that allows us to convert any struct into a serde_json::Map
-#[macro_export]
-macro_rules! to_solidity_type {
-    ($value: expr) => {
-        serde_json::from_value::<SolidityType>(
-            serde_json::to_value($value).expect("Failed to convert value into serde_json::Value"),
-        )
-        .expect("Failed to convert value into SolidityType")
-    };
-}
-
 /// A helper macro that allows us to convert any map into an array
 #[macro_export]
 macro_rules! to_array {
@@ -95,7 +84,7 @@ macro_rules! to_array {
 #[macro_export]
 macro_rules! format_inputs {
     ($($input: ident),*) => {
-        $(let $input = to_solidity_type!($input);)*
+        $(let $input = SolidityType::from($input);)*
     };
 }
 

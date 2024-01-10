@@ -4,14 +4,18 @@ use std::{
     ops::{Add, Div, Mul, Sub},
 };
 
-use crate::{aliases::*, sol_type};
+use crate::{aliases::*, map_literal, sol_type};
 use alloy_primitives::U8;
 use alloy_sol_macro::sol;
 use alloy_sol_types::{sol_data::FixedArray, SolEnum};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use substreams::Hex;
+use substreams::{
+    pb::substreams::store_delta::Operation,
+    store::{DeltaProto, Deltas},
+    Hex,
+};
 use substreams_ethereum::pb::eth::v2::Block;
 
 // A helper macro to impl From<T> for solidity types
@@ -52,6 +56,8 @@ pub enum SolidityType {
     Tuple(Vec<SolidityType>),
     List(Vec<SolidityType>),
     Struct(HashMap<String, SolidityType>),
+    #[serde(skip)]
+    Null,
 }
 
 pub trait IntoSolType {
@@ -171,7 +177,8 @@ impl SolidityType {
             | SolidityType::Address(_)
             | SolidityType::ByteArray(_)
             | SolidityType::FixedArray(_)
-            | SolidityType::String(_) => None,
+            | SolidityType::String(_)
+            | SolidityType::Null => None,
         }
     }
 
@@ -198,7 +205,7 @@ impl SolidityType {
             SolidityType::Struct(map) => {
                 let value: &SolidityType = map
                     .get(key)
-                    .expect("No value found for key in list access!");
+                    .expect("No value found for key in struct access!");
                 Some(value.clone())
             }
             SolidityType::Boolean(_)
@@ -207,7 +214,8 @@ impl SolidityType {
             | SolidityType::Address(_)
             | SolidityType::ByteArray(_)
             | SolidityType::FixedArray(_)
-            | SolidityType::String(_) => None,
+            | SolidityType::String(_)
+            | SolidityType::Null => None,
         }
     }
 
@@ -336,9 +344,55 @@ impl ToString for SolidityType {
             SolidityType::ByteArray(val) => val.to_string(),
             SolidityType::FixedArray(val) => val.to_string(),
             SolidityType::String(val) => val.to_string(),
+            SolidityType::Null => "null".to_string(),
             SolidityType::Tuple(_) => panic!("Can't convert a tuple to a string!"),
             SolidityType::List(_) => panic!("Can't convert a list to a string!"),
             SolidityType::Struct(_) => panic!("Can't convert a struct to a string!"),
+        }
+    }
+}
+
+impl From<prost_wkt_types::Struct> for SolidityType {
+    fn from(value: prost_wkt_types::Struct) -> Self {
+        let value = serde_json::to_value(value).unwrap();
+        serde_json::from_value(value).unwrap()
+    }
+}
+
+impl From<Deltas<DeltaProto<prost_wkt_types::Struct>>> for SolidityType {
+    fn from(value: Deltas<DeltaProto<prost_wkt_types::Struct>>) -> Self {
+        let deltas = value.deltas;
+        let deltas = deltas.into_iter().map(SolidityType::from).collect();
+        SolidityType::List(deltas)
+    }
+}
+
+impl From<DeltaProto<prost_wkt_types::Struct>> for SolidityType {
+    fn from(value: DeltaProto<prost_wkt_types::Struct>) -> Self {
+        let DeltaProto {
+            operation,
+            key,
+            old_value,
+            new_value,
+            ..
+        } = value;
+
+        map_literal!(
+            "operation"; SolidityType::from(operation),
+            "key"; SolidityType::from(key),
+            "old_value"; SolidityType::from(old_value),
+            "new_value"; SolidityType::from(new_value)
+        )
+    }
+}
+
+impl From<Operation> for SolidityType {
+    fn from(value: Operation) -> Self {
+        match value {
+            Operation::Unset => SolidityType::from("Unset".to_string()),
+            Operation::Create => SolidityType::from("Create".to_string()),
+            Operation::Update => SolidityType::from("Update".to_string()),
+            Operation::Delete => SolidityType::from("Update".to_string()),
         }
     }
 }
