@@ -1,7 +1,6 @@
 use crate::{
     aliases::*,
-    parse_as,
-    prelude::{format_hex, SolidityJsonValue, SolidityType},
+    prelude::{format_hex, SolidityType},
     sol_type,
 };
 use alloy_primitives::{FixedBytes, Log};
@@ -12,9 +11,9 @@ use substreams_ethereum::{block_view::LogView, pb::eth::v2::Block};
 
 #[derive(Serialize, Deserialize)]
 pub struct TxMeta {
-    from: SolidityJsonValue,
-    to: SolidityJsonValue,
-    block_number: SolidityJsonValue,
+    from: SolidityType,
+    to: SolidityType,
+    block_number: SolidityType,
 }
 
 impl TxMeta {
@@ -80,7 +79,7 @@ where
             })
             .map(|(event, meta)| {
                 let map = serde_json::to_value(event).unwrap();
-                let event_guess = SolidityJsonValue::guess_json_value(&map).unwrap();
+                let event_guess = SolidityType::guess_json_value(&map).unwrap();
                 let as_value = serde_json::to_value(event_guess).unwrap();
                 if let Value::Object(mut map) = as_value {
                     let key = String::from("tx_meta");

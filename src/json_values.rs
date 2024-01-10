@@ -4,7 +4,7 @@ use std::{
     ops::{Add, Div, Mul, Sub},
 };
 
-use crate::{aliases::*, parse_as, sol_type};
+use crate::{aliases::*, sol_type};
 use alloy_primitives::U8;
 use alloy_sol_macro::sol;
 use alloy_sol_types::{sol_data::FixedArray, SolEnum};
@@ -13,16 +13,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use substreams::Hex;
 use substreams_ethereum::pb::eth::v2::Block;
-
-// helper macro to populate a solidity json struct
-macro_rules! json_sol {
-    ($kind: expr, $val: ident) => {
-        SolidityJsonValue {
-            kind: $kind.to_string(),
-            value: ValueKind::Scalar($val.to_string()),
-        }
-    };
-}
 
 // A helper macro to impl From<T> for solidity types
 macro_rules! impl_from {
@@ -49,25 +39,6 @@ macro_rules! impl_to {
     };
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone)]
-pub struct SolidityJsonValue {
-    /// Represents the type of the value
-    kind: String,
-    /// A hex string for the bytes in the value
-    #[serde(flatten)]
-    value: ValueKind,
-}
-
-#[derive(Deserialize, Serialize, Debug, Clone)]
-pub enum ValueKind {
-    #[serde(rename = "value")]
-    Scalar(String),
-    #[serde(rename = "value")]
-    Compound(Vec<SolidityJsonValue>),
-    #[serde(rename = "value")]
-    Map(HashMap<String, SolidityJsonValue>),
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "value", rename_all = "camelCase")]
 pub enum SolidityType {
@@ -88,166 +59,9 @@ pub trait IntoSolType {
 }
 
 impl SolidityType {
-    pub fn to_json_value(self) -> SolidityJsonValue {
-        match self {
-            SolidityType::Boolean(val) => json_sol!("boolean", val),
-            SolidityType::Uint(val) => json_sol!("uint", val),
-            SolidityType::Address(val) => json_sol!("address", val),
-            SolidityType::ByteArray(val) => json_sol!("bytes", val),
-            SolidityType::FixedArray(val) => json_sol!("array", val),
-            SolidityType::String(val) => json_sol!("string", val),
-            SolidityType::Enum(val) => json_sol!("enum", val),
-            SolidityType::Tuple(val) => {
-                let val: Vec<SolidityJsonValue> =
-                    val.into_iter().map(|item| item.to_json_value()).collect();
-                SolidityJsonValue {
-                    kind: "tuple".to_string(),
-                    value: ValueKind::Compound(val),
-                }
-            }
-            SolidityType::List(val) => {
-                let val: Vec<SolidityJsonValue> =
-                    val.into_iter().map(|item| item.to_json_value()).collect();
-                SolidityJsonValue {
-                    kind: "list".to_string(),
-                    value: ValueKind::Compound(val),
-                }
-            }
-            SolidityType::Struct(val) => {
-                let val: HashMap<String, SolidityJsonValue> = val
-                    .into_iter()
-                    .map(|(k, v)| (k, v.to_json_value()))
-                    .collect();
-
-                SolidityJsonValue {
-                    kind: "struct".to_string(),
-                    value: ValueKind::Map(val),
-                }
-            }
-        }
-    }
-
-    pub fn add<T: Into<SolidityType>>(self, value: T) -> SolidityType {
-        let value: SolidityType = value.into();
-        match (&self, &value) {
-            (SolidityType::Uint(lh), SolidityType::Uint(rh)) => {
-                let sum = lh + rh;
-                SolidityType::Uint(sum)
-            }
-            _ => panic!("Can't add {self:?} and {value:?}! Both values must be a uint!"),
-        }
-    }
-}
-
-impl ToString for SolidityType {
-    fn to_string(&self) -> String {
-        match &self {
-            SolidityType::Boolean(val) => {
-                let value: u8 = val.to();
-                if value == 0 {
-                    "false".to_string()
-                } else {
-                    "true".to_string()
-                }
-            }
-            SolidityType::Enum(val) => {
-                let value: u8 = val.to();
-                value.to_string()
-            }
-            SolidityType::Uint(val) => val.to_string(),
-            SolidityType::Address(val) => val.to_string(),
-            SolidityType::ByteArray(val) => val.to_string(),
-            SolidityType::FixedArray(val) => val.to_string(),
-            SolidityType::String(val) => val.to_string(),
-            SolidityType::Tuple(_) => panic!("Can't convert a tuple to a string!"),
-            SolidityType::List(_) => panic!("Can't convert a list to a string!"),
-            SolidityType::Struct(_) => panic!("Can't convert a struct to a string!"),
-        }
-    }
-}
-
-// NOTE I might want to change this to try_from
-impl From<SolidityJsonValue> for SolidityType {
-    fn from(value: SolidityJsonValue) -> Self {
-        value.to_sol_type()
-    }
-}
-
-// NOTE I might want to change this to try_from
-impl From<Value> for SolidityType {
-    fn from(value: Value) -> Self {
-        let as_json = SolidityJsonValue::from_value(&value).expect(&format!(
-            "Couldn't convert value {value:?} into SolidityJsonValue!"
-        ));
-        as_json.into()
-    }
-}
-
-// NOTE I might want to change this to try_from
-impl From<Option<Value>> for SolidityType {
-    fn from(value: Option<Value>) -> Self {
-        let as_json = SolidityJsonValue::from_value(&value.as_ref().unwrap()).expect(&format!(
-            "Couldn't convert value {value:?} into SolidityJsonValue!"
-        ));
-        as_json.into()
-    }
-}
-
-impl From<SolidityType> for SolidityJsonValue {
-    fn from(value: SolidityType) -> Self {
-        value.to_json_value()
-    }
-}
-
-impl SolidityJsonValue {
-    pub fn to_sol_type(self) -> SolidityType {
-        match self.kind.as_str() {
-            "boolean" => parse_as!(self, Boolean),
-            "uint" => parse_as!(self, Uint),
-            "bytes" => parse_as!(self, ByteArray),
-            "string" => parse_as!(self, String),
-            "address" => parse_as!(self, Address),
-            "list" => {
-                let value = self.value;
-                if let ValueKind::Compound(vals) = value {
-                    let vals = vals.into_iter().map(|item| item.to_sol_type()).collect();
-                    SolidityType::List(vals)
-                } else {
-                    panic!("Invalid cast to a sol type");
-                }
-            }
-            "tuple" => {
-                let value = self.value;
-                if let ValueKind::Compound(vals) = value {
-                    let vals: Vec<SolidityType> =
-                        vals.into_iter().map(|item| item.to_sol_type()).collect();
-                    SolidityType::Tuple(vals)
-                } else {
-                    panic!("Invalid cast to a sol type");
-                }
-            }
-            "struct" => {
-                let value = self.value;
-
-                if let ValueKind::Map(map) = value {
-                    let map: HashMap<String, SolidityType> =
-                        map.into_iter().map(|(k, v)| (k, v.to_sol_type())).collect();
-                    return SolidityType::Struct(map);
-                }
-
-                panic!("The value of a struct should never be a Scalar value!");
-            }
-            _ => panic!("Invalid cast to a sol type"),
-        }
-    }
-
-    pub fn from_value(value: &Value) -> Option<SolidityJsonValue> {
-        serde_json::from_value(value.clone()).ok()
-    }
-
     /// This function takes in a serde json value, and tries to guess the solidity type it represents, if any.
     /// Note that this can't tell the difference between bytes values and uints because they are represented as hex values all the same.
-    pub fn guess_json_value(value: &Value) -> Option<SolidityJsonValue> {
+    pub fn guess_json_value(value: &Value) -> Option<SolidityType> {
         match value {
             Value::Bool(val) => Some(val.clone().into()),
             Value::String(val) => {
@@ -293,7 +107,7 @@ impl SolidityJsonValue {
                 if keys_match {
                     let values: Vec<SolidityType> = val
                         .values()
-                        .map(|value| SolidityJsonValue::guess_json_value(value).unwrap().into()) // TODO Slow, but fine for now
+                        .map(|value| SolidityType::guess_json_value(value).unwrap()) // TODO Slow, but fine for now
                         .collect();
                     if values.len() == 1 {
                         return Some(values[0].clone().into());
@@ -307,18 +121,18 @@ impl SolidityJsonValue {
                         .map(|(key, value)| {
                             (
                                 key.to_string(),
-                                SolidityJsonValue::guess_json_value(value).unwrap().into(),
+                                SolidityType::guess_json_value(value).unwrap(),
                             )
                         })
                         .collect::<HashMap<String, SolidityType>>();
-                    return Some(SolidityType::Struct(kvs).to_json_value());
+                    return Some(SolidityType::Struct(kvs));
                 }
             }
             Value::Array(arr) => {
                 // TODO Slow, but fine for now
                 let values: Vec<SolidityType> = arr
                     .into_iter()
-                    .map(|value| SolidityJsonValue::guess_json_value(value).unwrap().into())
+                    .map(|value| SolidityType::guess_json_value(value).unwrap())
                     .collect();
 
                 Some(SolidityType::List(values).into())
@@ -329,6 +143,184 @@ impl SolidityJsonValue {
                 Some(SolidityType::Uint(U256::from(num.as_i64().unwrap())).into())
             }
         }
+    }
+
+    pub fn insert(&mut self, key: &str, value: SolidityType) -> Option<()> {
+        match self {
+            SolidityType::Tuple(ref mut val) => {
+                let key = key
+                    .parse()
+                    .expect("Couldn't parse key into number for tuple insert!");
+                val.insert(key, value);
+                Some(())
+            }
+            SolidityType::List(ref mut list) => {
+                let key = key
+                    .parse()
+                    .expect("Couldn't parse key into number for list insert!");
+                list.insert(key, value);
+                Some(())
+            }
+            SolidityType::Struct(ref mut map) => {
+                map.insert(key.to_string(), value);
+                Some(())
+            }
+            SolidityType::Boolean(_)
+            | SolidityType::Enum(_)
+            | SolidityType::Uint(_)
+            | SolidityType::Address(_)
+            | SolidityType::ByteArray(_)
+            | SolidityType::FixedArray(_)
+            | SolidityType::String(_) => None,
+        }
+    }
+
+    pub fn get(&self, key: &str, value: SolidityType) -> Option<SolidityType> {
+        match &self {
+            SolidityType::Tuple(val) => {
+                let key: usize = key
+                    .parse()
+                    .expect("Couldn't parse key into number for tuple insert!");
+                let value: &SolidityType = val
+                    .get(key)
+                    .expect("No value found for key in tuple access!");
+                Some(value.clone())
+            }
+            SolidityType::List(list) => {
+                let key: usize = key
+                    .parse()
+                    .expect("Couldn't parse key into number for list insert!");
+                let value: &SolidityType = list
+                    .get(key)
+                    .expect("No value found for key in list access!");
+                Some(value.clone())
+            }
+            SolidityType::Struct(map) => {
+                let value: &SolidityType = map
+                    .get(key)
+                    .expect("No value found for key in list access!");
+                Some(value.clone())
+            }
+            SolidityType::Boolean(_)
+            | SolidityType::Enum(_)
+            | SolidityType::Uint(_)
+            | SolidityType::Address(_)
+            | SolidityType::ByteArray(_)
+            | SolidityType::FixedArray(_)
+            | SolidityType::String(_) => None,
+        }
+    }
+
+    pub fn map<F>(&self, callback: F) -> SolidityType
+    where
+        F: Fn(&SolidityType) -> &SolidityType,
+    {
+        match self {
+            SolidityType::Tuple(vals) => {
+                let values: Vec<SolidityType> =
+                    vals.iter().map(callback).map(|item| item.clone()).collect();
+                SolidityType::List(values)
+            }
+            SolidityType::List(list) => {
+                let values: Vec<SolidityType> =
+                    list.iter().map(callback).map(|item| item.clone()).collect();
+                SolidityType::List(values)
+            }
+            SolidityType::Struct(_) => panic!("Tried to map over a struct!"),
+            _ => panic!("Tried to map over a scalar value!"),
+        }
+    }
+
+    pub fn filter<F>(&self, callback: F) -> SolidityType
+    where
+        F: Fn(&SolidityType) -> &SolidityType,
+    {
+        match self {
+            SolidityType::Tuple(vals) => {
+                let values: Vec<SolidityType> = vals
+                    .iter()
+                    .map(callback)
+                    .filter(|item| {
+                        if let SolidityType::Boolean(val) = item {
+                            let value: u8 = val.to();
+                            if value == 0 {
+                                false
+                            } else {
+                                true
+                            }
+                        } else {
+                            panic!("Tried to filter over a tuple, but found a non boolean value!")
+                        }
+                    })
+                    .map(|item| item.clone())
+                    .collect();
+                SolidityType::List(values)
+            }
+            SolidityType::List(list) => {
+                let values: Vec<SolidityType> = list
+                    .iter()
+                    .map(callback)
+                    .filter(|item| {
+                        if let SolidityType::Boolean(val) = item {
+                            let value: u8 = val.to();
+                            if value == 0 {
+                                false
+                            } else {
+                                true
+                            }
+                        } else {
+                            panic!("Tried to filter over a list, but found a non boolean value!")
+                        }
+                    })
+                    .map(|item| item.clone())
+                    .collect();
+                SolidityType::List(values)
+            }
+            SolidityType::Struct(_) => panic!("Tried to filter over a struct!"),
+            _ => panic!("Tried to filter over a scalar value!"),
+        }
+    }
+}
+
+impl ToString for SolidityType {
+    fn to_string(&self) -> String {
+        match &self {
+            SolidityType::Boolean(val) => {
+                let value: u8 = val.to();
+                if value == 0 {
+                    "false".to_string()
+                } else {
+                    "true".to_string()
+                }
+            }
+            SolidityType::Enum(val) => {
+                let value: u8 = val.to();
+                value.to_string()
+            }
+            SolidityType::Uint(val) => val.to_string(),
+            SolidityType::Address(val) => val.to_string(),
+            SolidityType::ByteArray(val) => val.to_string(),
+            SolidityType::FixedArray(val) => val.to_string(),
+            SolidityType::String(val) => val.to_string(),
+            SolidityType::Tuple(_) => panic!("Can't convert a tuple to a string!"),
+            SolidityType::List(_) => panic!("Can't convert a list to a string!"),
+            SolidityType::Struct(_) => panic!("Can't convert a struct to a string!"),
+        }
+    }
+}
+
+// NOTE I might want to change this to try_from
+impl From<Value> for SolidityType {
+    fn from(value: Value) -> Self {
+        serde_json::from_value(value).unwrap()
+    }
+}
+
+// NOTE I might want to change this to try_from
+impl From<Option<Value>> for SolidityType {
+    fn from(value: Option<Value>) -> Self {
+        serde_json::from_value(value.expect("Tried to convert a None value into a SolidityType!"))
+            .unwrap()
     }
 }
 
@@ -348,39 +340,8 @@ pub fn block_meta(block: &Block) -> (&Vec<u8>, u64, u64) {
     (hash, number, timestamp)
 }
 
-macro_rules! json_insert {
-    ($json: ident, $key: expr, $val: expr) => {
-        $json.insert($key.to_string(), $val.clone().into());
-    };
-}
-
 pub fn format_hex(input: &[u8]) -> String {
     format!("0x{}", Hex(input).to_string())
-}
-
-pub fn format_value(value: &ethereum_abi::Value) -> Value {
-    match value {
-        ethereum_abi::Value::Uint(val, _) => val.to_string().into(),
-        ethereum_abi::Value::Int(val, _) => val.to_string().into(),
-        ethereum_abi::Value::Address(val) => format_hex(val.as_bytes()).into(),
-        ethereum_abi::Value::Bool(val) => (*val).into(),
-        ethereum_abi::Value::FixedBytes(val) => format_hex(val).into(),
-        ethereum_abi::Value::FixedArray(val, _) => {
-            Value::Array(val.into_iter().map(format_value).collect())
-        }
-        ethereum_abi::Value::String(val) => val.clone().into(),
-        ethereum_abi::Value::Bytes(val) => format_hex(val).into(),
-        ethereum_abi::Value::Array(val, _) => {
-            Value::Array(val.into_iter().map(format_value).collect())
-        }
-        ethereum_abi::Value::Tuple(val) => {
-            let mut json = Map::new();
-            for (key, value) in val.into_iter() {
-                json_insert!(json, key, format_value(value));
-            }
-            json.into()
-        }
-    }
 }
 
 impl_from!(Address, Address);
@@ -428,19 +389,6 @@ impl From<SolidityType> for bool {
         } else {
             panic!("Tried to convert a non boolean value into a boolean!");
         }
-    }
-}
-
-impl From<bool> for SolidityJsonValue {
-    fn from(value: bool) -> Self {
-        let value: SolidityType = value.into();
-        value.into()
-    }
-}
-
-impl From<SolidityJsonValue> for bool {
-    fn from(value: SolidityJsonValue) -> Self {
-        value.to_sol_type().into()
     }
 }
 

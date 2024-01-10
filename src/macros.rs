@@ -45,106 +45,25 @@ macro_rules! with_map {
 }
 
 #[macro_export]
-macro_rules! map_insert {
-    ($key: expr, $val: expr, $map_ident: ident) => {
-        let mut should_insert_val = false;
-        let val = serde_json::to_value($val).ok();
-        if let Some(val) = &val {
-            match val {
-                serde_json::Value::Array(arr) => {
-                    if !arr.is_empty() {
-                        should_insert_val = true;
-                    }
-                }
-                serde_json::Value::Object(obj) => {
-                    if !obj.is_empty() {
-                        should_insert_val = true;
-                    }
-                }
-                serde_json::Value::Null => {}
-                _ => {
-                    should_insert_val = true;
-                }
-            }
-        };
-
-        if should_insert_val {
-            $map_ident.insert($key.to_string(), val.unwrap())
-        } else {
-            None
-        }
-    };
-}
-
-#[macro_export]
 macro_rules! map_literal {
     ($($key: expr; $val: expr),*) => {{
-        let mut output_map: serde_json::Map<_, Value> = Map::new();
+        let mut map: SolidityValue = SolidityValue::Struct(HashMap::new());
 
-        $(map_insert!($key, $val, output_map);)*
+        $(map.insert($key, $val);)*
 
-        serde_json::to_value(output_map).ok()
+        map
     }};
 }
 
 #[macro_export]
 macro_rules! map_access {
     ($map:expr,$($key: expr),*) => {{
-        let output = serde_json::to_value($map).ok()?;
-        $(
-        let output: serde_json::Value = match output.get("kind") {
-            Some(serde_json::Value::String(s)) => match s {
-                s if s.starts_with("tuple") => {
-                    // get the values of the tuple
-                    let value = output.get("value").expect("A tuple should always have a value field").clone();
-
-                    // if the tuple values are an array, convert it into a map
-                    if let serde_json::Value::Array(arr) = value {
-                        let arr = arr.into_iter().enumerate().map(|(index, value)| (index.to_string(), value));
-                        serde_json::to_value(serde_json::Map::<String, Value>::from_iter(arr)).unwrap()
-                    } else {
-                        panic!("Tuple value field not an array!")
-                    }
-                }
-                s if s.starts_with("list") => {
-                    // get the values of the list
-                    let value = output.get("value").expect("A list should always have a value field").clone();
-
-                    // if the values of the list are an array, convert into a map
-                    if let serde_json::Value::Array(arr) = value {
-                        let arr = arr.into_iter().enumerate().map(|(index, value)| (index.to_string(), value));
-                        serde_json::to_value(serde_json::Map::<String, Value>::from_iter(arr)).unwrap()
-                    } else {
-                        panic!("List value field not an array!")
-                    }
-                }
-                s if s.starts_with("struct") => {
-                    // get the values of the list
-                    let value = output.get("value").expect("A struct should always have a value field").clone();
-
-                    // if the values of the list are an array, convert into a map
-                    if let serde_json::Value::Object(map) = value {
-                        serde_json::to_value(map).unwrap()
-                    } else {
-                        panic!("Struct value field not a map!")
-                    }
-                }
-                _ => panic!("WEIRD KIND WE SHOULDN't BE INDEXING!{:?}", s)
-            },
-            None => output.clone(),
-            _ => panic!("Trying to use a scalar type as a map! Don't do this pls, it's a logical error!")
-        };
-            let output = match &output {
-            serde_json::Value::Array(arr) => output.get($key.parse::<usize>().unwrap())?,
-            serde_json::Value::Object(obj) => output.get($key)?,
-            _ => panic!("Trying to index a value that shouldn't be indexing {:?}", output),
-        };)*
-
-        Some(output.clone())
+        let output = map;
+        $(let output = output.get($key);)*
+        output
     }};
 }
 
-/// A helper macro that allows us to convert any struct into a serde_json::Map
 #[macro_export]
 macro_rules! map {
     ($value: expr, $callback: expr) => {
@@ -250,12 +169,12 @@ macro_rules! filter {
 
 /// A helper macro that allows us to convert any struct into a serde_json::Map
 #[macro_export]
-macro_rules! to_map {
+macro_rules! to_solidity_type {
     ($value: expr) => {
-        serde_json::from_value::<serde_json::Map<_, serde_json::Value>>(
-            serde_json::to_value($value).expect("hi"),
+        serde_json::from_value::<SolidityType>(
+            serde_json::to_value($value).expect("Failed to convert value into serde_json::Value"),
         )
-        .expect("hello")
+        .expect("Failed to convert value into SolidityType")
     };
 }
 
@@ -282,23 +201,7 @@ macro_rules! to_array {
 #[macro_export]
 macro_rules! format_inputs {
     ($($input: ident),*) => {
-        $(let $input = to_map!($input);)*
-    };
-}
-
-/// Just a simple wrapper that adds syntax sugar for parsing our custom json value type
-#[macro_export]
-macro_rules! parse_as {
-    ($self: ident, $variant: ident) => {
-        match $self.value {
-            ValueKind::Scalar(val) => SolidityType::$variant(val.parse().unwrap()),
-            ValueKind::Compound(val) => {
-                SolidityType::Tuple(val.into_iter().map(|item| item.to_sol_type()).collect())
-            }
-            ValueKind::Map(val) => {
-                SolidityType::Struct(val.into_iter().map(|(k, v)| (k, v.to_sol_type())).collect())
-            }
-        }
+        $(let $input = to_solidity_type!($input);)*
     };
 }
 
@@ -307,6 +210,6 @@ macro_rules! parse_as {
 #[macro_export]
 macro_rules! sol_type {
     ($variant: ident, $str: expr) => {
-        SolidityType::$variant($str.parse().unwrap()).to_json_value()
+        SolidityType::$variant($str.parse().unwrap())
     };
 }
