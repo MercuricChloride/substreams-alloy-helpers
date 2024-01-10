@@ -16,9 +16,9 @@ pub struct TxMeta(SolidityType);
 impl TxMeta {
     pub fn new(from: &String, to: &String, block_number: &String) -> TxMeta {
         TxMeta(map_literal! {
-            from; sol_type!(Address, from),
-            to; sol_type!(Address, to),
-            block_number; sol_type!(Uint, block_number)
+            "from"; sol_type!(Address, from),
+            "to"; sol_type!(Address, to),
+            "block_number"; sol_type!(Uint, block_number)
         })
     }
 

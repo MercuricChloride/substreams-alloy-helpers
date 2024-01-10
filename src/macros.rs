@@ -17,57 +17,13 @@ macro_rules! with_map {
 
         $($body)*
 
-        match serde_json::to_value($map_ident).ok()? {
-            serde_json::Value::Array(arr) => {
-                if arr.is_empty() {
-                    None
-                } else {
-                    let mut map: Map<String, Value> = Map::new();
-                    map.insert("values".to_string(), serde_json::to_value(arr).unwrap());
-                    Some(serde_json::from_value(serde_json::to_value(map).unwrap()).unwrap())
-                }
-            },
-            serde_json::Value::Object(obj) => {
-                if obj.is_empty() {
-                    None
-                } else {
-                    Some(serde_json::from_value(serde_json::to_value(obj).unwrap()).unwrap())
-                }
-            },
-            serde_json::Value::Null => None,
-            _ => panic!("Not sure how to convert this type into a map for output!")
+        // NOTE This is pretty slow, so I will speed this up eventually
+        let maybe_value = $map_ident.to_maybe_value();
+        match maybe_value {
+            Some(val) => serde_json::from_value(val).unwrap(),
+            None => None,
         }
     };
-    // ($map_ident: ident ,$($body:tt)*) => {
-    //     let mut $map_ident: serde_json::Map<_, Value> = Map::new();
-
-    //     $($body)*
-
-    //     let $map_ident = match serde_json::to_value($map_ident).ok()? {
-    //         serde_json::Value::Array(arr) => {
-    //             if arr.is_empty() {
-    //                 None
-    //             } else {
-    //                 Some(map_literal!("values"; arr))
-    //             }
-    //         },
-    //         serde_json::Value::Object(obj) => {
-    //             if obj.is_empty() {
-    //                 None
-    //             } else {
-    //                 Some(serde_json::to_value(obj).ok())
-    //             }
-    //         },
-    //         serde_json::Value::Null => None,
-    //         _ => panic!("Not sure how to convert this type into a map for output!")
-    //     };
-
-    //     if let Some(Some(val)) = $map_ident {
-    //         serde_json::from_value(val).ok()?
-    //     } else {
-    //         None
-    //     }
-    // };
 }
 
 #[macro_export]

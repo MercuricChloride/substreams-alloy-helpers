@@ -213,7 +213,7 @@ impl SolidityType {
 
     pub fn map<F>(&self, callback: F) -> SolidityType
     where
-        F: Fn(&SolidityType) -> &SolidityType,
+        F: Fn(&SolidityType) -> SolidityType,
     {
         match self {
             SolidityType::Tuple(vals) => {
@@ -233,7 +233,7 @@ impl SolidityType {
 
     pub fn filter<F>(&self, callback: F) -> SolidityType
     where
-        F: Fn(&SolidityType) -> &SolidityType,
+        F: Fn(&SolidityType) -> SolidityType,
     {
         match self {
             SolidityType::Tuple(vals) => {
@@ -279,6 +279,43 @@ impl SolidityType {
             SolidityType::Struct(_) => panic!("Tried to filter over a struct!"),
             _ => panic!("Tried to filter over a scalar value!"),
         }
+    }
+
+    pub fn to_maybe_value(&self) -> Option<Value> {
+        match self {
+            SolidityType::Tuple(vals) => {
+                if vals.is_empty() {
+                    return None;
+                }
+            }
+            SolidityType::List(vals) => {
+                if vals.is_empty() {
+                    return None;
+                }
+            }
+            SolidityType::Struct(map) => {
+                if map.is_empty() {
+                    return None;
+                }
+
+                let recur_iter = HashMap::<&String, Value>::from_iter(
+                    map.into_iter()
+                        .map(|(k, v)| (k, v.to_maybe_value()))
+                        .filter_map(|(k, v)| match v {
+                            Some(v) => Some((k, v)),
+                            None => None,
+                        }),
+                );
+
+                if recur_iter.is_empty() {
+                    return None;
+                } else {
+                    return serde_json::to_value(recur_iter).ok();
+                }
+            }
+            _ => {}
+        }
+        serde_json::to_value(self).ok()
     }
 }
 
