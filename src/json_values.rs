@@ -175,7 +175,7 @@ impl SolidityType {
         }
     }
 
-    pub fn get(&self, key: &str, value: SolidityType) -> Option<SolidityType> {
+    pub fn get(&self, key: &str) -> Option<SolidityType> {
         match &self {
             SolidityType::Tuple(val) => {
                 let key: usize = key

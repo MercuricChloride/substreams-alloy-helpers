@@ -13,41 +13,67 @@ macro_rules! loose_sol {
 #[macro_export]
 macro_rules! with_map {
     ($map_ident: ident ,$($body:tt)*) => {
-        let mut $map_ident: serde_json::Map<_, Value> = Map::new();
+        let mut $map_ident: SolidityType = SolidityType::Struct(HashMap::new());
 
         $($body)*
 
-        let $map_ident = match serde_json::to_value($map_ident).ok()? {
+        match serde_json::to_value($map_ident).ok()? {
             serde_json::Value::Array(arr) => {
                 if arr.is_empty() {
                     None
                 } else {
-                    Some(map_literal!("values"; arr))
+                    let mut map: Map<String, Value> = Map::new();
+                    map.insert("values".to_string(), serde_json::to_value(arr).unwrap());
+                    Some(serde_json::from_value(serde_json::to_value(map).unwrap()).unwrap())
                 }
             },
             serde_json::Value::Object(obj) => {
                 if obj.is_empty() {
                     None
                 } else {
-                    Some(serde_json::to_value(obj).ok())
+                    Some(serde_json::from_value(serde_json::to_value(obj).unwrap()).unwrap())
                 }
             },
             serde_json::Value::Null => None,
             _ => panic!("Not sure how to convert this type into a map for output!")
-        };
-
-        if let Some(Some(val)) = $map_ident {
-            serde_json::from_value(val).ok()?
-        } else {
-            None
         }
     };
+    // ($map_ident: ident ,$($body:tt)*) => {
+    //     let mut $map_ident: serde_json::Map<_, Value> = Map::new();
+
+    //     $($body)*
+
+    //     let $map_ident = match serde_json::to_value($map_ident).ok()? {
+    //         serde_json::Value::Array(arr) => {
+    //             if arr.is_empty() {
+    //                 None
+    //             } else {
+    //                 Some(map_literal!("values"; arr))
+    //             }
+    //         },
+    //         serde_json::Value::Object(obj) => {
+    //             if obj.is_empty() {
+    //                 None
+    //             } else {
+    //                 Some(serde_json::to_value(obj).ok())
+    //             }
+    //         },
+    //         serde_json::Value::Null => None,
+    //         _ => panic!("Not sure how to convert this type into a map for output!")
+    //     };
+
+    //     if let Some(Some(val)) = $map_ident {
+    //         serde_json::from_value(val).ok()?
+    //     } else {
+    //         None
+    //     }
+    // };
 }
 
 #[macro_export]
 macro_rules! map_literal {
     ($($key: expr; $val: expr),*) => {{
-        let mut map: SolidityValue = SolidityValue::Struct(HashMap::new());
+        let mut map: SolidityType = SolidityType::Struct(HashMap::new());
 
         $(map.insert($key, $val);)*
 
@@ -58,8 +84,8 @@ macro_rules! map_literal {
 #[macro_export]
 macro_rules! map_access {
     ($map:expr,$($key: expr),*) => {{
-        let output = map;
-        $(let output = output.get($key);)*
+        let output = $map;
+        $(let output = output.get($key).unwrap();)*
         output
     }};
 }
@@ -67,103 +93,14 @@ macro_rules! map_access {
 #[macro_export]
 macro_rules! map {
     ($value: expr, $callback: expr) => {
-        if let Some(val) = $value.as_ref() {
-            match serde_json::to_value(val).unwrap() {
-                serde_json::Value::Array(arr) => Some(
-                    arr.into_iter()
-                        .map($callback)
-                        .filter_map(|element| serde_json::to_value(element).ok())
-                        .collect(),
-                ),
-                serde_json::Value::Object(obj) => {
-                    if let Some(serde_json::Value::Array(arr)) = obj.get("values").as_ref() {
-                        Some(
-                            arr.into_iter()
-                                .map($callback)
-                                .filter_map(|element| serde_json::to_value(element).ok())
-                                .collect(),
-                        )
-                    } else {
-                        None
-                    }
-                }
-                _ => {
-                    substreams::log::println(format!(
-                        "Failed quietly, couldn't map over null or not an array! {:?}",
-                        $value
-                    ));
-                    None
-                }
-            }
-        } else {
-            None
-        };
+        $value.map($callback);
     };
 }
 
 #[macro_export]
 macro_rules! filter {
     ($value: expr, $callback: expr) => {
-        if let Some(val) = $value.as_ref() {
-            match val {
-                serde_json::Value::Array(arr) => Some(
-                    arr.into_iter()
-                        .map($callback)
-                        .filter(|item| {
-                            if let SolidityType::Boolean(b) = item.to_sol_type() {
-                                let value: u8 = val.to();
-                                if value == 0 {
-                                    false
-                                } else {
-                                    true
-                                }
-                            } else {
-                                false
-                            }
-                        })
-                        .filter($callback)
-                        .map(|element| serde_json::to_value(element).unwrap())
-                        .collect(),
-                ),
-                serde_json::Value::Object(obj) => {
-                    if let Some(serde_json::Value::Array(arr)) = obj.get("values").as_ref() {
-                        Some(
-                            arr.into_iter()
-                                .map($callback)
-                                .filter(|item| {
-                                    if let SolidityType::Boolean(b) = item.to_sol_type() {
-                                        let value: u8 = val.to();
-                                        if value == 0 {
-                                            false
-                                        } else {
-                                            true
-                                        }
-                                    } else {
-                                        false
-                                    }
-                                })
-                                .map(|element| serde_json::to_value(element).unwrap())
-                                .collect(),
-                        )
-                    } else {
-                        None
-                    }
-                }
-                _ => {
-                    substreams::log::println(format!(
-                        "Failed quietly, couldn't filter over null or not an array! {:?}",
-                        $value
-                    ));
-                    None
-                }
-            }
-        } else {
-            //substreams::log::println(format!(
-            //"Failed quietly, couldn't filter over null or not an array! {:?}",
-            //$value
-            //));
-            None
-        };
+        $value.filter($callback);
     };
 }
 
