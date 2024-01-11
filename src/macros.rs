@@ -17,7 +17,11 @@ macro_rules! with_map {
 
         $($body)*
 
-        serde_json::from_value(serde_json::to_value($map_ident).unwrap()).unwrap()
+        if let Some(val) = $map_ident.to_maybe_value() {
+            serde_json::from_value(val).unwrap()
+        } else {
+            None
+        }
         // NOTE This is pretty slow, so I will speed this up eventually
         // let maybe_value = $map_ident.to_maybe_value();
         // match maybe_value {
@@ -34,7 +38,15 @@ macro_rules! map_literal {
 
         $(map.insert($key, $val);)*
 
-        map
+        if let SolidityType::Struct(ref values) = map {
+            if values.is_empty() {
+                SolidityType::Null
+            } else {
+                map
+            }
+        } else {
+            panic!("Solidity Struct Magically Switched to Something not a struct!")
+        }
     }};
 }
 
@@ -42,7 +54,7 @@ macro_rules! map_literal {
 macro_rules! map_access {
     ($map:expr,$($key: expr),*) => {{
         let output = $map;
-        $(let output = output.get($key).unwrap();)*
+        $(let output = output.get($key);)*
         output
     }};
 }

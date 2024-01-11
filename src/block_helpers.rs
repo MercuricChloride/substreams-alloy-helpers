@@ -1,3 +1,4 @@
+use crate::json_values::GuessValue;
 use crate::{
     aliases::*,
     map_literal,
@@ -64,7 +65,7 @@ where
 {
     fn get_events(blk: &Block, addresses: &[&Address]) -> SolidityType {
         let validate = false;
-        let events = blk
+        let events: Vec<SolidityType> = blk
             .alloy_logs(addresses)
             .iter()
             .filter_map(|(l, meta)| {
@@ -90,7 +91,11 @@ where
             })
             .collect();
 
-        SolidityType::List(events)
+        if events.len() == 0 {
+            SolidityType::Null
+        } else {
+            SolidityType::List(events)
+        }
     }
 }
 

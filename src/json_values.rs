@@ -60,14 +60,106 @@ pub enum SolidityType {
     Null,
 }
 
-pub trait IntoSolType {
-    fn into_sol_type(self) -> SolidityType;
+/// A trait that adds map like features to a type.
+pub trait MapLike {
+    fn get(&self, key: &str) -> SolidityType;
+    fn insert(&mut self, key: &str, value: SolidityType);
 }
 
-impl SolidityType {
+pub trait GuessValue<T> {
     /// This function takes in a serde json value, and tries to guess the solidity type it represents, if any.
     /// Note that this can't tell the difference between bytes values and uints because they are represented as hex values all the same.
-    pub fn guess_json_value(value: &Value) -> Option<SolidityType> {
+    fn guess_json_value(value: T) -> Option<SolidityType>;
+}
+
+impl GuessValue<&Value> for SolidityType {
+    fn guess_json_value(value: &Value) -> Option<SolidityType> {
+        match &value {
+            Value::Bool(val) => Some(val.clone().into()),
+            Value::String(val) => {
+                // Address Check
+                if val.starts_with("0x") && val.len() == 42 {
+                    return Some(sol_type!(Address, val));
+                }
+
+                // Bytes32 / Uint256 Check
+                // NOTE We are going to treat these as uints for now. Might want to change to bytes?
+                if val.starts_with("0x") && val.len() == 66 {
+                    return Some(sol_type!(Uint, val));
+                }
+
+                // Bytes check
+                if val.starts_with("0x") && val.len() > 66 {
+                    return Some(sol_type!(ByteArray, val));
+                }
+
+                // If the value starts with 0x, but all the other values failed
+                if val.starts_with("0x") {
+                    Some(sol_type!(Uint, val))
+                } else {
+                    // Otherwise we treat it as a String
+                    Some(sol_type!(String, val))
+                }
+            }
+
+            Value::Object(val) => {
+                // tuple check
+                let mut keys = val.keys();
+                let key_regex = Regex::new(r"_\d+").unwrap();
+                let keys_match = keys.all(|key| {
+                    let re_match = key_regex.find(key);
+                    if let Some(re_match) = re_match {
+                        re_match.as_str() == key
+                    } else {
+                        false
+                    }
+                });
+
+                // if the keys match the pattern of _0, _1, etc, it's a tuple.
+                if keys_match {
+                    let values: Vec<SolidityType> = val
+                        .values()
+                        .map(|value| SolidityType::guess_json_value(value).unwrap()) // TODO Slow, but fine for now
+                        .collect();
+                    if values.len() == 1 {
+                        return Some(values[0].clone().into());
+                    } else {
+                        return Some(SolidityType::Tuple(values).into());
+                    }
+                } else {
+                    // Otherwise if they don't match, it's a struct
+                    let kvs = val
+                        .into_iter()
+                        .map(|(key, value)| {
+                            (
+                                key.to_string(),
+                                SolidityType::guess_json_value(value).unwrap(),
+                            )
+                        })
+                        .collect::<HashMap<String, SolidityType>>();
+                    return Some(SolidityType::Struct(kvs));
+                }
+            }
+            Value::Array(arr) => {
+                // TODO Slow, but fine for now
+                let values: Vec<SolidityType> = arr
+                    .into_iter()
+                    .map(|value| SolidityType::guess_json_value(value).unwrap())
+                    .collect();
+
+                Some(SolidityType::List(values).into())
+            }
+            Value::Null => todo!("Null types shouldn't be returned?"),
+            // NOTE The only time this is returned is a number less than i32
+            Value::Number(num) => {
+                Some(SolidityType::Uint(U256::from(num.as_i64().unwrap())).into())
+            }
+        }
+    }
+}
+
+impl GuessValue<Value> for SolidityType {
+    fn guess_json_value(value: Value) -> Option<SolidityType> {
         match value {
             Value::Bool(val) => Some(val.clone().into()),
             Value::String(val) => {
@@ -150,72 +242,97 @@ impl SolidityType {
             }
         }
     }
+}
 
-    pub fn insert(&mut self, key: &str, value: SolidityType) -> Option<()> {
+impl GuessValue<&prost_wkt_types::Struct> for SolidityType {
+    fn guess_json_value(value: &prost_wkt_types::Struct) -> Option<SolidityType> {
+        let value = serde_json::to_value(value).unwrap();
+        SolidityType::guess_json_value(value)
+    }
+}
+
+impl GuessValue<prost_wkt_types::Struct> for SolidityType {
+    fn guess_json_value(value: prost_wkt_types::Struct) -> Option<SolidityType> {
+        let value = serde_json::to_value(value).unwrap();
+        SolidityType::guess_json_value(value)
+    }
+}
+
+impl MapLike for SolidityType {
+    fn get(&self, key: &str) -> SolidityType {
+        self.get(key)
+    }
+
+    fn insert(&mut self, key: &str, value: SolidityType) {
+        self.insert(key, value)
+    }
+}
+
+impl MapLike for &SolidityType {
+    fn get(&self, key: &str) -> SolidityType {
+        (*self).get(key)
+    }
+
+    fn insert(&mut self, key: &str, value: SolidityType) {
+        self.clone().insert(key, value)
+    }
+}
+
+impl SolidityType {
+    pub fn insert(&mut self, key: &str, value: SolidityType) {
         match self {
             SolidityType::Tuple(ref mut val) => {
                 let key = key
                     .parse()
                     .expect("Couldn't parse key into number for tuple insert!");
                 val.insert(key, value);
-                Some(())
             }
             SolidityType::List(ref mut list) => {
                 let key = key
                     .parse()
                     .expect("Couldn't parse key into number for list insert!");
                 list.insert(key, value);
-                Some(())
             }
             SolidityType::Struct(ref mut map) => {
                 map.insert(key.to_string(), value);
-                Some(())
             }
-            SolidityType::Boolean(_)
-            | SolidityType::Enum(_)
-            | SolidityType::Uint(_)
-            | SolidityType::Address(_)
-            | SolidityType::ByteArray(_)
-            | SolidityType::FixedArray(_)
-            | SolidityType::String(_)
-            | SolidityType::Null => None,
-        }
+            _ => {}
+        };
     }
 
-    pub fn get(&self, key: &str) -> Option<SolidityType> {
+    pub fn get(&self, key: &str) -> SolidityType {
         match &self {
             SolidityType::Tuple(val) => {
-                let key: usize = key
-                    .parse()
-                    .expect("Couldn't parse key into number for tuple insert!");
-                let value: &SolidityType = val
-                    .get(key)
-                    .expect("No value found for key in tuple access!");
-                Some(value.clone())
+                let key: usize = key.parse().expect(&format!(
+                    "{key:?} Couldn't parse key into number for tuple insert!"
+                ));
+                let value = val.get(key);
+                if let Some(value) = value {
+                    value.clone()
+                } else {
+                    SolidityType::Null
+                }
             }
             SolidityType::List(list) => {
                 let key: usize = key
                     .parse()
                     .expect("Couldn't parse key into number for list insert!");
-                let value: &SolidityType = list
-                    .get(key)
-                    .expect("No value found for key in list access!");
-                Some(value.clone())
+                let value = list.get(key);
+                if let Some(value) = value {
+                    value.clone()
+                } else {
+                    SolidityType::Null
+                }
             }
             SolidityType::Struct(map) => {
-                let value: &SolidityType = map
-                    .get(key)
-                    .expect("No value found for key in struct access!");
-                Some(value.clone())
+                let value = map.get(key);
+                if let Some(value) = value {
+                    value.clone()
+                } else {
+                    SolidityType::Null
+                }
             }
-            SolidityType::Boolean(_)
-            | SolidityType::Enum(_)
-            | SolidityType::Uint(_)
-            | SolidityType::Address(_)
-            | SolidityType::ByteArray(_)
-            | SolidityType::FixedArray(_)
-            | SolidityType::String(_)
-            | SolidityType::Null => None,
+            _ => SolidityType::Null,
         }
     }
 
@@ -225,16 +342,45 @@ impl SolidityType {
     {
         match self {
             SolidityType::Tuple(vals) => {
-                let values: Vec<SolidityType> =
-                    vals.iter().map(callback).map(|item| item.clone()).collect();
-                SolidityType::List(values)
+                let values: Vec<SolidityType> = vals
+                    .iter()
+                    .filter_map(|item| {
+                        let value = callback(item);
+                        if let SolidityType::Null = value {
+                            None
+                        } else {
+                            Some(value)
+                        }
+                    })
+                    .map(|item| item.clone())
+                    .collect();
+                if values.len() == 0 {
+                    SolidityType::Null
+                } else {
+                    SolidityType::List(values)
+                }
             }
             SolidityType::List(list) => {
-                let values: Vec<SolidityType> =
-                    list.iter().map(callback).map(|item| item.clone()).collect();
-                SolidityType::List(values)
+                let values: Vec<SolidityType> = list
+                    .iter()
+                    .filter_map(|item| {
+                        let value = callback(item);
+                        if let SolidityType::Null = value {
+                            None
+                        } else {
+                            Some(value)
+                        }
+                    })
+                    .map(|item| item.clone())
+                    .collect();
+                if values.len() == 0 {
+                    SolidityType::Null
+                } else {
+                    SolidityType::List(values)
+                }
             }
             SolidityType::Struct(_) => panic!("Tried to map over a struct!"),
+            SolidityType::Null => SolidityType::Null,
             _ => panic!("Tried to map over a scalar value!"),
         }
     }
@@ -249,40 +395,60 @@ impl SolidityType {
                     .iter()
                     .filter_map(|item| {
                         let callback_value = callback(item);
-                        if let SolidityType::Boolean(val) = callback_value {
-                            let value: u8 = val.to();
-                            if value == 0 {
-                                None
-                            } else {
-                                Some(item.clone())
+                        match callback_value {
+                            SolidityType::Boolean(val) => {
+                                let value: u8 = val.to();
+                                if value == 0 {
+                                    None
+                                } else {
+                                    Some(item.clone())
+                                }
                             }
-                        } else {
-                            panic!("Tried to filter over a tuple, but found a non boolean value!")
+                            SolidityType::Null => None,
+                            _ => panic!(
+                                "Tried to filter over a tuple, but found a non boolean or null value!"
+                            ),
                         }
                     })
                     .collect();
-                SolidityType::List(values)
+
+                if values.len() == 0 {
+                    SolidityType::Null
+                } else {
+                    SolidityType::List(values)
+                }
             }
+
             SolidityType::List(list) => {
                 let values: Vec<SolidityType> = list
                     .iter()
                     .filter_map(|item| {
                         let callback_value = callback(item);
-                        if let SolidityType::Boolean(val) = callback_value {
-                            let value: u8 = val.to();
-                            if value == 0 {
-                                None
-                            } else {
-                                Some(item.clone())
+                        match callback_value {
+                            SolidityType::Boolean(val) => {
+                                let value: u8 = val.to();
+                                if value == 0 {
+                                    None
+                                } else {
+                                    Some(item.clone())
+                                }
                             }
-                        } else {
-                            panic!("Tried to filter over a tuple, but found a non boolean value!")
+                            SolidityType::Null => None,
+                            _ => panic!(
+                                "Tried to filter over a list, but found a non boolean or null value!"
+                            ),
                         }
                     })
                     .collect();
-                SolidityType::List(values)
+
+                if values.len() == 0 {
+                    SolidityType::Null
+                } else {
+                    SolidityType::List(values)
+                }
             }
             SolidityType::Struct(_) => panic!("Tried to filter over a struct!"),
+            SolidityType::Null => SolidityType::Null,
             _ => panic!("Tried to filter over a scalar value!"),
         }
     }
@@ -293,14 +459,22 @@ impl SolidityType {
                 if vals.len() == 0 {
                     return None;
                 } else {
-                    Some(serde_json::to_value(self).unwrap())
+                    Some(Value::Array(
+                        vals.iter()
+                            .filter_map(|item| item.to_maybe_value())
+                            .collect(),
+                    ))
                 }
             }
             SolidityType::List(vals) => {
                 if vals.len() == 0 {
                     return None;
                 } else {
-                    Some(serde_json::to_value(self).unwrap())
+                    Some(Value::Array(
+                        vals.iter()
+                            .filter_map(|item| item.to_maybe_value())
+                            .collect(),
+                    ))
                 }
             }
             SolidityType::Struct(map) => {
@@ -308,19 +482,26 @@ impl SolidityType {
                     .into_iter()
                     .map(|(k, v)| (k, v.to_maybe_value()))
                     .filter(|(_k, v)| v.is_some())
-                    .map(|(k, v)| (k, v.unwrap()))
+                    .map(|(k, v)| (k.to_string(), v.unwrap()))
                     .collect::<Vec<_>>();
 
-                let recur_iter = HashMap::<&String, Value>::from_iter(iter);
+                let recur_iter = Map::<String, Value>::from_iter(iter);
 
                 if recur_iter.len() == 0 {
                     return None;
                 } else {
-                    Some(serde_json::to_value(recur_iter).unwrap())
+                    Some(Value::Object(recur_iter))
                 }
             }
+            SolidityType::Null => None,
             _ => Some(serde_json::to_value(self).unwrap()),
         }
+    }
+}
+
+impl AsRef<SolidityType> for SolidityType {
+    fn as_ref(&self) -> &SolidityType {
+        &self
     }
 }
 
@@ -355,7 +536,7 @@ impl ToString for SolidityType {
 impl From<prost_wkt_types::Struct> for SolidityType {
     fn from(value: prost_wkt_types::Struct) -> Self {
         let value = serde_json::to_value(value).unwrap();
-        serde_json::from_value(value).unwrap()
+        SolidityType::guess_json_value(value).unwrap()
     }
 }
 
@@ -379,7 +560,7 @@ impl From<DeltaProto<prost_wkt_types::Struct>> for SolidityType {
 
         map_literal!(
             "operation"; SolidityType::from(operation),
-            "key"; SolidityType::from(key),
+            "key"; SolidityType::String(key),
             "old_value"; SolidityType::from(old_value),
             "new_value"; SolidityType::from(new_value)
         )
@@ -389,10 +570,10 @@ impl From<DeltaProto<prost_wkt_types::Struct>> for SolidityType {
 impl From<Operation> for SolidityType {
     fn from(value: Operation) -> Self {
         match value {
-            Operation::Unset => SolidityType::from("Unset".to_string()),
-            Operation::Create => SolidityType::from("Create".to_string()),
-            Operation::Update => SolidityType::from("Update".to_string()),
-            Operation::Delete => SolidityType::from("Update".to_string()),
+            Operation::Unset => SolidityType::String("Unset".to_string()),
+            Operation::Create => SolidityType::String("Create".to_string()),
+            Operation::Update => SolidityType::String("Update".to_string()),
+            Operation::Delete => SolidityType::String("Update".to_string()),
         }
     }
 }
@@ -404,26 +585,11 @@ impl From<Value> for SolidityType {
     }
 }
 
-impl From<&SolidityType> for SolidityType {
-    fn from(value: &SolidityType) -> Self {
-        value.into()
-    }
-}
-
 // NOTE I might want to change this to try_from
 impl From<Option<Value>> for SolidityType {
     fn from(value: Option<Value>) -> Self {
         serde_json::from_value(value.expect("Tried to convert a None value into a SolidityType!"))
             .unwrap()
-    }
-}
-
-pub fn to_json_map<T: Serialize>(input: &T, map: &mut serde_json::Map<String, Value>) {
-    let s = serde_json::to_string(input).unwrap();
-    let json_map: Map<String, Value> = serde_json::from_str(&s).unwrap();
-
-    for (k, v) in json_map.into_iter() {
-        map.insert(k, v.to_string().into());
     }
 }
 
@@ -494,7 +660,16 @@ where
     type Output = Self;
 
     fn add(self, rhs: T) -> Self::Output {
+        if let SolidityType::Null = &self {
+            return SolidityType::Null;
+        }
+
         let rhs: SolidityType = Into::into(rhs);
+
+        if let &SolidityType::Null = &rhs {
+            return SolidityType::Null;
+        }
+
         // NOTE If we add something to a string, it will concat. I'm not sure if I will keep this or not.
         if let SolidityType::String(str) = &self {
             let mut return_string = str.clone();
@@ -519,7 +694,15 @@ where
     type Output = Self;
 
     fn sub(self, rhs: T) -> Self::Output {
+        if let SolidityType::Null = &self {
+            return SolidityType::Null;
+        }
+
         let rhs: SolidityType = Into::into(rhs);
+
+        if let &SolidityType::Null = &rhs {
+            return SolidityType::Null;
+        }
         match (&self, &rhs) {
             (SolidityType::Uint(lh), SolidityType::Uint(rh)) => {
                 let sum = lh - rh;
@@ -537,7 +720,15 @@ where
     type Output = Self;
 
     fn mul(self, rhs: T) -> Self::Output {
+        if let SolidityType::Null = &self {
+            return SolidityType::Null;
+        }
+
         let rhs: SolidityType = Into::into(rhs);
+
+        if let &SolidityType::Null = &rhs {
+            return SolidityType::Null;
+        }
         match (&self, &rhs) {
             (SolidityType::Uint(lh), SolidityType::Uint(rh)) => {
                 let sum = lh * rh;
@@ -555,7 +746,15 @@ where
     type Output = Self;
 
     fn div(self, rhs: T) -> Self::Output {
+        if let SolidityType::Null = &self {
+            return SolidityType::Null;
+        }
+
         let rhs: SolidityType = Into::into(rhs);
+
+        if let &SolidityType::Null = &rhs {
+            return SolidityType::Null;
+        }
         match (&self, &rhs) {
             (SolidityType::Uint(lh), SolidityType::Uint(rh)) => {
                 let sum = lh / rh;
