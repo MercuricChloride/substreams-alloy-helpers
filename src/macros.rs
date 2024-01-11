@@ -17,7 +17,9 @@ macro_rules! with_map {
 
         $($body)*
 
+        substreams::log::println(format!("{:?}", $map_ident));
         if let Some(val) = $map_ident.to_maybe_value() {
+            let val = serde_json::to_value(val).unwrap();
             serde_json::from_value(val).unwrap()
         } else {
             None
@@ -86,7 +88,6 @@ macro_rules! to_array {
                 _ => None,
             }
         } else {
-            //substreams::log::println(format!("VALUE IS NONE!"));
             None
         }
     };

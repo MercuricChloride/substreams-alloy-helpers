@@ -303,8 +303,12 @@ impl SolidityType {
     pub fn get(&self, key: &str) -> SolidityType {
         match &self {
             SolidityType::Tuple(val) => {
+                if val.len() == 0 {
+                    return SolidityType::Null;
+                }
                 let key: usize = key.parse().expect(&format!(
-                    "{key:?} Couldn't parse key into number for tuple insert!"
+                    "{} Couldn't parse key into number for tuple get!",
+                    key
                 ));
                 let value = val.get(key);
                 if let Some(value) = value {
@@ -314,9 +318,12 @@ impl SolidityType {
                 }
             }
             SolidityType::List(list) => {
+                if list.len() == 0 {
+                    return SolidityType::Null;
+                }
                 let key: usize = key
                     .parse()
-                    .expect("Couldn't parse key into number for list insert!");
+                    .expect("Couldn't parse key into number for list get!");
                 let value = list.get(key);
                 if let Some(value) = value {
                     value.clone()
@@ -453,28 +460,28 @@ impl SolidityType {
         }
     }
 
-    pub fn to_maybe_value(&self) -> Option<Value> {
+    pub fn to_maybe_value(&self) -> Option<SolidityType> {
         match self {
             SolidityType::Tuple(vals) => {
+                let values: Vec<SolidityType> = vals
+                    .iter()
+                    .filter_map(|item| item.to_maybe_value())
+                    .collect();
                 if vals.len() == 0 {
                     return None;
                 } else {
-                    Some(Value::Array(
-                        vals.iter()
-                            .filter_map(|item| item.to_maybe_value())
-                            .collect(),
-                    ))
+                    Some(SolidityType::Tuple(values))
                 }
             }
             SolidityType::List(vals) => {
+                let values: Vec<SolidityType> = vals
+                    .iter()
+                    .filter_map(|item| item.to_maybe_value())
+                    .collect();
                 if vals.len() == 0 {
                     return None;
                 } else {
-                    Some(Value::Array(
-                        vals.iter()
-                            .filter_map(|item| item.to_maybe_value())
-                            .collect(),
-                    ))
+                    Some(SolidityType::List(values))
                 }
             }
             SolidityType::Struct(map) => {
@@ -483,18 +490,15 @@ impl SolidityType {
                     .map(|(k, v)| (k, v.to_maybe_value()))
                     .filter(|(_k, v)| v.is_some())
                     .map(|(k, v)| (k.to_string(), v.unwrap()))
-                    .collect::<Vec<_>>();
-
-                let recur_iter = Map::<String, Value>::from_iter(iter);
-
-                if recur_iter.len() == 0 {
-                    return None;
+                    .collect::<HashMap<String, SolidityType>>();
+                if iter.is_empty() {
+                    None
                 } else {
-                    Some(Value::Object(recur_iter))
+                    Some(SolidityType::Struct(iter))
                 }
             }
             SolidityType::Null => None,
-            _ => Some(serde_json::to_value(self).unwrap()),
+            _ => Some(self.clone()),
         }
     }
 }
@@ -536,7 +540,11 @@ impl ToString for SolidityType {
 impl From<prost_wkt_types::Struct> for SolidityType {
     fn from(value: prost_wkt_types::Struct) -> Self {
         let value = serde_json::to_value(value).unwrap();
-        SolidityType::guess_json_value(value).unwrap()
+        if let Some(value) = serde_json::from_value(value.clone()).ok() {
+            value
+        } else {
+            SolidityType::guess_json_value(value).unwrap()
+        }
     }
 }
 
