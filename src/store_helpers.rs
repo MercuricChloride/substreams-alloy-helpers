@@ -9,6 +9,10 @@ pub trait GenericStore<K, V> {
     fn generic_delete_prefix(&self, prefix: K);
 }
 
+pub trait GenericStoreGet<K> {
+    fn generic_get(&self, key: K) -> SolidityType;
+}
+
 impl<K, V> GenericStore<K, V> for StoreSetProto<ProtoStruct>
 where
     K: AsRef<SolidityType> + ToString,
@@ -24,6 +28,20 @@ where
     fn generic_delete_prefix(&self, prefix: K) {
         let prefix = prefix.to_string();
         self.delete_prefix(0, &prefix);
+    }
+}
+
+impl<K> GenericStoreGet<K> for StoreGetProto<ProtoStruct>
+where
+    K: AsRef<SolidityType> + ToString,
+{
+    fn generic_get(&self, key: K) -> SolidityType {
+        let key = key.to_string();
+        if let Some(val) = self.get_last(&key) {
+            SolidityType::from(val)
+        } else {
+            SolidityType::Null
+        }
     }
 }
 
