@@ -1,29 +1,26 @@
+use crate::json_values::GuessValue;
 use crate::{
     aliases::*,
-    parse_as,
-    prelude::{format_hex, SolidityJsonValue, SolidityType},
+    map_literal,
+    prelude::{format_hex, SolidityType},
     sol_type,
 };
 use alloy_primitives::{FixedBytes, Log};
 use alloy_sol_types::{SolCall, SolEnum, SolEvent};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use std::collections::HashMap;
 use substreams_ethereum::{block_view::LogView, pb::eth::v2::Block};
 
 #[derive(Serialize, Deserialize)]
-pub struct TxMeta {
-    from: SolidityJsonValue,
-    to: SolidityJsonValue,
-    block_number: SolidityJsonValue,
-}
-
+pub struct TxMeta(SolidityType);
 impl TxMeta {
     pub fn new(from: &String, to: &String, block_number: &String) -> TxMeta {
-        TxMeta {
-            from: sol_type!(Address, from),
-            to: sol_type!(Address, to),
-            block_number: sol_type!(Uint, block_number),
-        }
+        TxMeta(map_literal! {
+            "from"; sol_type!(Address, from),
+            "to"; sol_type!(Address, to),
+            "block_number"; sol_type!(Uint, block_number)
+        })
     }
 
     fn from_log(value: &substreams_ethereum::block_view::LogView, block_number: &String) -> Self {
@@ -59,16 +56,17 @@ impl BlockHelpers for Block {
 }
 
 pub trait EventHelpers {
-    fn get_events(blk: &Block, addresses: &[&Address]) -> Vec<prost_wkt_types::Struct>;
+    fn get_events(blk: &Block, addresses: &[&Address]) -> SolidityType;
 }
 
 impl<T> EventHelpers for T
 where
     T: SolEvent + Serialize,
 {
-    fn get_events(blk: &Block, addresses: &[&Address]) -> Vec<prost_wkt_types::Struct> {
+    fn get_events(blk: &Block, addresses: &[&Address]) -> SolidityType {
         let validate = false;
-        blk.alloy_logs(addresses)
+        let events: Vec<SolidityType> = blk
+            .alloy_logs(addresses)
             .iter()
             .filter_map(|(l, meta)| {
                 let event = T::decode_log_object(l, validate).ok();
@@ -80,28 +78,24 @@ where
             })
             .map(|(event, meta)| {
                 let map = serde_json::to_value(event).unwrap();
-                let event_guess = SolidityJsonValue::guess_json_value(&map).unwrap();
-                let as_value = serde_json::to_value(event_guess).unwrap();
-                if let Value::Object(mut map) = as_value {
+                let mut event_guess = SolidityType::guess_json_value(&map).unwrap();
+                if let SolidityType::Struct(ref mut map) = &mut event_guess {
                     let key = String::from("tx_meta");
 
-                    if map.get(&key).is_some() {
-                        panic!("Map contains the tx_meta key already!");
-                    }
-
-                    if let Some(Value::Object(map)) = map.get_mut("value") {
-                        map.insert(key, serde_json::to_value(meta).unwrap());
-                    } else {
-                        panic!("Couldn't insert tx_meta into Struct value field!");
-                    }
-
-                    serde_json::from_value(map.into())
-                        .expect("Failed convert event into protobuf struct")
+                    map.insert(key, meta.0.clone());
                 } else {
-                    panic!("Event wasn't found to be a serde_json::Value Object!?");
+                    panic!("Event wasn't found to be an Object!?");
                 }
+
+                event_guess
             })
-            .collect()
+            .collect();
+
+        if events.len() == 0 {
+            SolidityType::Null
+        } else {
+            SolidityType::List(events)
+        }
     }
 }
 

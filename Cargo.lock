@@ -1477,7 +1477,6 @@ dependencies = [
  "primitive-types 0.12.2",
  "prost",
  "prost-types",
- "prost-wkt",
  "prost-wkt-types",
  "regex",
  "serde",
