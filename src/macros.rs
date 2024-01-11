@@ -17,19 +17,12 @@ macro_rules! with_map {
 
         $($body)*
 
-        substreams::log::println(format!("{:?}", $map_ident));
         if let Some(val) = $map_ident.to_maybe_value() {
             let val = serde_json::to_value(val).unwrap();
             serde_json::from_value(val).unwrap()
         } else {
             None
         }
-        // NOTE This is pretty slow, so I will speed this up eventually
-        // let maybe_value = $map_ident.to_maybe_value();
-        // match maybe_value {
-        //     Some(val) => serde_json::from_value(val).unwrap(),
-        //     None => None,
-        // }
     };
 }
 
