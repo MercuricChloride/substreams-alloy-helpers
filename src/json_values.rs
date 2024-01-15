@@ -8,6 +8,7 @@ use crate::{aliases::*, map_literal, sol_type};
 use alloy_primitives::U8;
 use alloy_sol_macro::sol;
 use alloy_sol_types::{sol_data::FixedArray, SolEnum};
+use prost_wkt_types::Struct;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -244,15 +245,15 @@ impl GuessValue<Value> for SolidityType {
     }
 }
 
-impl GuessValue<&prost_wkt_types::Struct> for SolidityType {
-    fn guess_json_value(value: &prost_wkt_types::Struct) -> Option<SolidityType> {
+impl GuessValue<&Struct> for SolidityType {
+    fn guess_json_value(value: &Struct) -> Option<SolidityType> {
         let value = serde_json::to_value(value).unwrap();
         SolidityType::guess_json_value(value)
     }
 }
 
-impl GuessValue<prost_wkt_types::Struct> for SolidityType {
-    fn guess_json_value(value: prost_wkt_types::Struct) -> Option<SolidityType> {
+impl GuessValue<Struct> for SolidityType {
+    fn guess_json_value(value: Struct) -> Option<SolidityType> {
         let value = serde_json::to_value(value).unwrap();
         SolidityType::guess_json_value(value)
     }
@@ -537,8 +538,8 @@ impl ToString for SolidityType {
     }
 }
 
-impl From<prost_wkt_types::Struct> for SolidityType {
-    fn from(value: prost_wkt_types::Struct) -> Self {
+impl From<Struct> for SolidityType {
+    fn from(value: Struct) -> Self {
         let value = serde_json::to_value(value).unwrap();
         if let Some(value) = serde_json::from_value(value.clone()).ok() {
             value
@@ -548,16 +549,16 @@ impl From<prost_wkt_types::Struct> for SolidityType {
     }
 }
 
-impl From<Deltas<DeltaProto<prost_wkt_types::Struct>>> for SolidityType {
-    fn from(value: Deltas<DeltaProto<prost_wkt_types::Struct>>) -> Self {
+impl From<Deltas<DeltaProto<Struct>>> for SolidityType {
+    fn from(value: Deltas<DeltaProto<Struct>>) -> Self {
         let deltas = value.deltas;
         let deltas = deltas.into_iter().map(SolidityType::from).collect();
         SolidityType::List(deltas)
     }
 }
 
-impl From<DeltaProto<prost_wkt_types::Struct>> for SolidityType {
-    fn from(value: DeltaProto<prost_wkt_types::Struct>) -> Self {
+impl From<DeltaProto<Struct>> for SolidityType {
+    fn from(value: DeltaProto<Struct>) -> Self {
         let DeltaProto {
             operation,
             key,
@@ -668,14 +669,14 @@ where
     type Output = Self;
 
     fn add(self, rhs: T) -> Self::Output {
-        if let SolidityType::Null = &self {
-            return SolidityType::Null;
-        }
-
         let rhs: SolidityType = Into::into(rhs);
 
+        if let SolidityType::Null = &self {
+            return rhs;
+        }
+
         if let &SolidityType::Null = &rhs {
-            return SolidityType::Null;
+            return self;
         }
 
         // NOTE If we add something to a string, it will concat. I'm not sure if I will keep this or not.
@@ -685,13 +686,11 @@ where
             return SolidityType::String(return_string);
         }
 
-        match (&self, &rhs) {
-            (SolidityType::Uint(lh), SolidityType::Uint(rh)) => {
-                let sum = lh + rh;
-                SolidityType::Uint(sum)
-            }
-            _ => panic!("Can't add {self:?} and {rhs:?}! Both values must be a uint!"),
+        if let (SolidityType::Uint(lh), SolidityType::Uint(rh)) = (&self, &rhs) {
+            let sum = lh + rh;
+            return SolidityType::Uint(sum);
         }
+        panic!("Can't add {self:?} and {rhs:?} together!");
     }
 }
 
@@ -702,15 +701,16 @@ where
     type Output = Self;
 
     fn sub(self, rhs: T) -> Self::Output {
-        if let SolidityType::Null = &self {
-            return SolidityType::Null;
-        }
-
         let rhs: SolidityType = Into::into(rhs);
 
-        if let &SolidityType::Null = &rhs {
-            return SolidityType::Null;
+        if let SolidityType::Null = &self {
+            return rhs;
         }
+
+        if let &SolidityType::Null = &rhs {
+            return self;
+        }
+
         match (&self, &rhs) {
             (SolidityType::Uint(lh), SolidityType::Uint(rh)) => {
                 let sum = lh - rh;
