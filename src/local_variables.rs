@@ -1,5 +1,7 @@
 //! The purpose of this module is to allow us to have dynamically typed local variables in our substreams modules
 
+use std::rc::Rc;
+
 use crate::json_values::*;
 use crate::prelude::GenericStoreGet;
 use prost_wkt_types::Struct;
@@ -47,6 +49,12 @@ impl From<SolidityType> for LocalVar {
 impl From<StoreGetProto<Struct>> for LocalVar {
     fn from(value: StoreGetProto<Struct>) -> Self {
         LocalVar::StoreGet(value)
+    }
+}
+
+impl From<Rc<LocalVar>> for LocalVar {
+    fn from(value: Rc<LocalVar>) -> Self {
+        Rc::into_inner(value).unwrap()
     }
 }
 
