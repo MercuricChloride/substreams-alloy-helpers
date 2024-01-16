@@ -31,7 +31,7 @@ macro_rules! map_literal {
     ($($key: expr; $val: expr),*) => {{
         let mut map: SolidityType = SolidityType::Struct(HashMap::new());
 
-        $(map.insert($key, $val);)*
+        $(map.insert($key, $val.into());)*
 
         if let SolidityType::Struct(ref values) = map {
             if values.is_empty() {
