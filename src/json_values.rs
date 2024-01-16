@@ -594,6 +594,12 @@ impl From<Value> for SolidityType {
     }
 }
 
+impl From<&SolidityType> for SolidityType {
+    fn from(value: &SolidityType) -> Self {
+        value.clone()
+    }
+}
+
 // NOTE I might want to change this to try_from
 impl From<Option<Value>> for SolidityType {
     fn from(value: Option<Value>) -> Self {
