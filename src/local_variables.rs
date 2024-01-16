@@ -38,6 +38,18 @@ pub enum LocalVar {
     StoreGet(StoreGetProto<Struct>),
 }
 
+impl From<SolidityType> for LocalVar {
+    fn from(value: SolidityType) -> Self {
+        LocalVar::SolidityType(value)
+    }
+}
+
+impl From<StoreGetProto<Struct>> for LocalVar {
+    fn from(value: StoreGetProto<Struct>) -> Self {
+        LocalVar::StoreGet(value)
+    }
+}
+
 impl From<LocalVar> for SolidityType {
     fn from(value: LocalVar) -> Self {
         only_sol!(value)
